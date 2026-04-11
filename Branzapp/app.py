@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import urllib.parse
+import os
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="BRANZ TECH PRO", layout="wide", page_icon="🚀")
@@ -39,13 +40,27 @@ except Exception as e:
     st.error(f"Koneksi GSheets Gagal: {e}")
     st.stop()
 
-# --- 4. SIDEBAR & NAVIGASI ---
+# --- 4. SIDEBAR & NAVIGASI (OPTIMASI LOGO) ---
 with st.sidebar:
-    st.title("🚀 BRANZ TECH")
+    # Mencari path folder tempat app.py berada
+    current_dir = os.path.dirname(__file__)
+    logo_path = os.path.join(current_dir, "logo.png")
+    
+    # Logika Pencarian Logo Berlapis
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=200)
+    else:
+        try:
+            # Mencoba mencari di root directory jika folder Branzapp tidak terdeteksi
+            st.image("logo.png", width=200)
+        except:
+            st.title("🚀 BRANZ TECH")
+    
     st.write(f"📅 {datetime.now().strftime('%d/%m/%Y')}")
     st.divider()
     menu = st.radio("Menu Utama", ["Dashboard & Grafik", "Update Stok", "Transaksi Penjualan"])
     st.divider()
+    
     if st.button("🚪 Logout"):
         st.session_state.auth = False
         st.rerun()
@@ -63,7 +78,6 @@ if menu == "Dashboard & Grafik":
         nilai_aset = df['Total Modal'].sum()
         st.metric("Nilai Aset (Modal)", format_rp(nilai_aset))
     with col3:
-        # Menghitung estimasi potensi laba dari stok yang ada
         potensi_laba = ((df['Harga Jual'] - df['Harga Modal']) * df['Stok']).sum()
         st.metric("Potensi Laba Stok", format_rp(potensi_laba))
 
@@ -103,7 +117,6 @@ elif menu == "Transaksi Penjualan":
         produk_pilih = st.selectbox("Pilih Barang", df['Produk'].unique())
         qty = st.number_input("Jumlah Terjual", min_value=1, step=1)
         
-        # Ambil data produk
         data_p = df[df['Produk'] == produk_pilih].iloc[0]
         harga_jual = data_p['Harga Jual']
         harga_modal = data_p['Harga Modal']
@@ -121,7 +134,6 @@ elif menu == "Transaksi Penjualan":
                 st.balloons()
                 st.success(f"Transaksi Berhasil!")
                 
-                # --- FITUR STRUK DIGITAL ---
                 with st.expander("📝 LIHAT STRUK PENJUALAN", expanded=True):
                     st.markdown(f"""
                     <div style="border:1px solid #ddd; padding:20px; border-radius:10px; background-color: #1e1e1e;">
@@ -138,9 +150,8 @@ elif menu == "Transaksi Penjualan":
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Link Notif WA jika stok kritis
                 if sisa_stok_tampilan <= 5:
-                    st.warning(f"⚠️ Stok Hampir Habis! Sisa: {sisa_stok_tampilan}")
-                    pesan = f"⚠️ *PERINGATAN BRANZ TECH*\nStok *{produk_pilih}* sisa {sisa_stok_tampilan} pcs."
+                    st.warning(f"⚠️ Stok Hampir Habis! Sisa: {int(sisa_stok_tampilan)}")
+                    pesan = f"⚠️ *PERINGATAN BRANZ TECH*\nStok *{produk_pilih}* sisa {int(sisa_stok_tampilan)} pcs."
                     wa_url = f"https://wa.me/?text={urllib.parse.quote(pesan)}"
                     st.link_button("📲 Kirim Notifikasi WA ke Owner", wa_url)
