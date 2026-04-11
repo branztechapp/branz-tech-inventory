@@ -13,7 +13,13 @@ st.set_page_config(page_title="BRANZ TECH PRO", layout="wide", page_icon="🚀")
 def format_rp(angka):
     return f"Rp {angka:,.0f}".replace(",", ".")
 
-# --- 2. SISTEM LOGIN ---
+# --- 2. SISTEM LOGIN (MULTI-USER) ---
+users = {
+    "admin": "branz123",
+    "agen_aisyah": "aisyah99",
+    "agen_nikmat": "cireng77"
+}
+
 if 'auth' not in st.session_state:
     st.session_state.auth = False
 
@@ -22,8 +28,9 @@ if not st.session_state.auth:
     user = st.text_input("Username")
     passw = st.text_input("Password", type="password")
     if st.button("Masuk"):
-        if user == "admin" and passw == "branz123":
+        if user in users and users[user] == passw:
             st.session_state.auth = True
+            st.session_state.user_now = user
             st.rerun()
         else:
             st.error("Username/Password salah!")
@@ -42,20 +49,18 @@ except Exception as e:
 
 # --- 4. SIDEBAR & NAVIGASI (OPTIMASI LOGO) ---
 with st.sidebar:
-    # Mencari path folder tempat app.py berada
     current_dir = os.path.dirname(__file__)
     logo_path = os.path.join(current_dir, "logo.png")
     
-    # Logika Pencarian Logo Berlapis
     if os.path.exists(logo_path):
         st.image(logo_path, width=200)
     else:
         try:
-            # Mencoba mencari di root directory jika folder Branzapp tidak terdeteksi
             st.image("logo.png", width=200)
         except:
             st.title("🚀 BRANZ TECH")
     
+    st.write(f"👤 User: **{st.session_state.user_now}**")
     st.write(f"📅 {datetime.now().strftime('%d/%m/%Y')}")
     st.divider()
     menu = st.radio("Menu Utama", ["Dashboard & Grafik", "Update Stok", "Transaksi Penjualan"])
@@ -134,22 +139,39 @@ elif menu == "Transaksi Penjualan":
                 st.balloons()
                 st.success(f"Transaksi Berhasil!")
                 
+                # --- STRUK DIGITAL DENGAN ALAMAT & HP ---
                 with st.expander("📝 LIHAT STRUK PENJUALAN", expanded=True):
                     st.markdown(f"""
-                    <div style="border:1px solid #ddd; padding:20px; border-radius:10px; background-color: #1e1e1e;">
-                    <h3 style="text-align:center;">BRANZ TECH DIGITAL NOTE</h3>
-                    <hr>
-                    <p><b>Tanggal:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
-                    <p><b>Produk:</b> {produk_pilih}</p>
-                    <p><b>Jumlah:</b> {qty} pcs</p>
-                    <p><b>Harga Satuan:</b> {format_rp(harga_jual)}</p>
-                    <hr>
-                    <h4 style="text-align:right;">Total: {format_rp(total_bayar)}</h4>
-                    <hr>
-                    <p style="text-align:center; font-size: 12px;"><i>Terima kasih telah berbelanja di BRANZ TECH!</i></p>
+                    <div style="border:1px solid #ddd; padding:20px; border-radius:10px; background-color: #1e1e1e; font-family: 'Courier New', Courier, monospace;">
+                    <h3 style="text-align:center; margin-bottom: 5px;">BRANZ TECH PRO</h3>
+                    <p style="text-align:center; font-size: 14px; margin-top: 0px;">
+                        Jombang, Jawa Timur<br>
+                        WA: 0812-xxxx-xxxx
+                    </p>
+                    <hr style="border-top: 1px dashed #bbb;">
+                    <p style="font-size: 14px;">
+                        <b>Tanggal :</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}<br>
+                        <b>Kasir   :</b> {st.session_state.user_now}<br>
+                        <b>Produk  :</b> {produk_pilih}
+                    </p>
+                    <hr style="border-top: 1px dashed #bbb;">
+                    <table style="width:100%; font-size: 14px;">
+                        <tr>
+                            <td>{qty} pcs x {format_rp(harga_jual)}</td>
+                            <td style="text-align:right;">{format_rp(total_bayar)}</td>
+                        </tr>
+                    </table>
+                    <hr style="border-top: 1px dashed #bbb;">
+                    <h3 style="text-align:right;">TOTAL: {format_rp(total_bayar)}</h3>
+                    <hr style="border-top: 1px dashed #bbb;">
+                    <p style="text-align:center; font-size: 12px; margin-top: 20px;">
+                        <i>Terima kasih telah berbelanja!<br>
+                        Simpan struk ini sebagai bukti transaksi resmi.</i>
+                    </p>
                     </div>
                     """, unsafe_allow_html=True)
                 
+                # Link Notif WA jika stok kritis
                 if sisa_stok_tampilan <= 5:
                     st.warning(f"⚠️ Stok Hampir Habis! Sisa: {int(sisa_stok_tampilan)}")
                     pesan = f"⚠️ *PERINGATAN BRANZ TECH*\nStok *{produk_pilih}* sisa {int(sisa_stok_tampilan)} pcs."
