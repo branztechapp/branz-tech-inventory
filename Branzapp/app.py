@@ -1,102 +1,109 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import urllib.parse
 
-# Setup Halaman
-st.set_page_config(page_title="BRANZ TECH Pro", layout="wide")
+# --- 1. KONFIGURASI HALAMAN ---
+st.set_page_config(page_title="BRANZ TECH PRO", layout="wide", page_icon="🚀")
 
-# Database Sederhana
-if 'inventory' not in st.session_state:
-    st.session_state.inventory = pd.DataFrame(columns=[
-        "Barcode", "Produk", "Stok", "Harga Modal", "Harga Jual", "Exp Date"
-    ])
-if 'sales_history' not in st.session_state:
-    st.session_state.sales_history = pd.DataFrame(columns=["Waktu", "Produk", "Laba"])
+# Fungsi format mata uang
+def format_rp(angka):
+    return f"Rp {angka:,.0f}".replace(",", ".")
 
-# Fungsi Kirim WA
-def kirim_wa(nama_produk, sisa_stok):
-    pesan = f"⚠️ *PERINGATAN BRANZ TECH*\n\nStok produk *{nama_produk}* hampir habis!\nSisa stok: *{sisa_stok} pcs*.\nSegera lakukan restok agar penjualan tetap lancar!"
-    url = f"https://wa.me/?text={urllib.parse.quote(pesan)}"
-    return url
+# --- 2. SISTEM LOGIN ---
+if 'auth' not in st.session_state:
+    st.session_state.auth = False
 
-# --- UI SIDEBAR ---
-st.sidebar.title("🚀 BRANZ TECH")
-menu = st.sidebar.radio("Menu Utama", ["Dashboard & Grafik", "Update Stok", "Transaksi Penjualan"])
+if not st.session_state.auth:
+    st.title("🔒 BRANZ TECH LOGIN")
+    user = st.text_input("Username")
+    passw = st.text_input("Password", type="password")
+    if st.button("Masuk"):
+        if user == "admin" and passw == "branz123":
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("Username/Password salah!")
+    st.stop()
 
-# --- HALAMAN 1: DASHBOARD & GRAFIK ---
+# --- 3. KONEKSI GOOGLE SHEETS ---
+url = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
+
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    # ttl=0 memastikan aplikasi selalu ambil data terbaru dari Sheets
+    df = conn.read(spreadsheet=url, ttl=0)
+    # Bersihkan baris kosong berdasarkan kolom Produk
+    df = df.dropna(subset=['Produk'])
+except Exception as e:
+    st.error(f"Koneksi GSheets Gagal: {e}")
+    st.stop()
+
+# --- 4. SIDEBAR & NAVIGASI ---
+with st.sidebar:
+    st.title("🚀 BRANZ TECH")
+    st.write(f"📅 {datetime.now().strftime('%d/%m/%Y')}")
+    menu = st.radio("Menu Utama", ["Dashboard & Grafik", "Update Stok", "Transaksi Penjualan"])
+    if st.button("🚪 Logout"):
+        st.session_state.auth = False
+        st.rerun()
+
+# --- 5. DASHBOARD & GRAFIK ---
 if menu == "Dashboard & Grafik":
     st.title("📊 Analisis Bisnis Real-Time")
     
-    # Indikator Utama
-    total_laba = st.session_state.sales_history['Laba'].sum()
-    st.metric("Total Laba Bersih", f"Rp {total_laba:,.0f}")
-
     col1, col2 = st.columns(2)
-    
     with col1:
-        st.subheader("📦 Status Stok Barang")
-        if not st.session_state.inventory.empty:
-            fig_stok = px.bar(st.session_state.inventory, x="Produk", y="Stok", color="Stok",
-                             color_continuous_scale="RdYlGn", title="Jumlah Stok per Produk")
-            st.plotly_chart(fig_stok, use_container_width=True)
-        else:
-            st.info("Belum ada data produk.")
-
+        total_stok = df['Stok'].sum()
+        st.metric("Total Stok Barang", f"{int(total_stok)} Pcs")
     with col2:
-        st.subheader("📈 Tren Laba")
-        if not st.session_state.sales_history.empty:
-            fig_laba = px.line(st.session_state.sales_history, x="Waktu", y="Laba", 
-                              title="Pertumbuhan Laba", markers=True)
-            st.plotly_chart(fig_laba, use_container_width=True)
-        else:
-            st.info("Belum ada riwayat penjualan.")
+        df['Total Modal'] = df['Stok'] * df['Harga Modal']
+        nilai_aset = df['Total Modal'].sum()
+        st.metric("Nilai Aset (Modal)", format_rp(nilai_aset))
 
-# --- HALAMAN 2: UPDATE STOK ---
+    st.divider()
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.subheader("📦 Status Stok")
+        fig = px.bar(df, x="Produk", y="Stok", color="Stok", 
+                     color_continuous_scale="RdYlGn", text_auto=True)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with c2:
+        st.subheader("📑 Data Inventaris")
+        st.dataframe(df[['Barcode', 'Produk', 'Stok', 'Harga Jual']], use_container_width=True)
+
+# --- 6. UPDATE STOK ---
 elif menu == "Update Stok":
     st.title("📥 Input Produk Baru")
-    with st.form("form_stok"):
-        col_a, col_b = st.columns(2)
-        barcode = col_a.text_input("ID/Barcode")
-        nama = col_b.text_input("Nama Produk")
-        stok_awal = col_a.number_input("Jumlah Stok", min_value=1)
-        modal = col_b.number_input("Harga Modal", min_value=0)
-        jual = col_a.number_input("Harga Jual", min_value=0)
-        exp = col_b.date_input("Masa Kedaluwarsa")
-        
-        if st.form_submit_button("Simpan ke Database"):
-            new_row = pd.DataFrame([[barcode, nama, stok_awal, modal, jual, exp]], 
-                                   columns=st.session_state.inventory.columns)
-            st.session_state.inventory = pd.concat([st.session_state.inventory, new_row], ignore_index=True)
-            st.success("Data Tersimpan!")
+    st.info("Silakan update data langsung di Google Sheets untuk sinkronisasi permanen.")
+    st.link_button("📂 Buka Google Sheets", url)
+    st.write("Data saat ini di Sheets:")
+    st.table(df)
 
-# --- HALAMAN 3: PENJUALAN & NOTIF WA ---
+# --- 7. TRANSAKSI ---
 elif menu == "Transaksi Penjualan":
     st.title("💸 Kasir Digital")
-    if st.session_state.inventory.empty:
-        st.warning("Isi stok dulu di menu Update Stok!")
-    else:
-        produk_pilih = st.selectbox("Pilih Barang", st.session_state.inventory['Produk'].unique())
-        qty = st.number_input("Jumlah Terjual", min_value=1)
+    produk_pilih = st.selectbox("Pilih Barang", df['Produk'].unique())
+    qty = st.number_input("Jumlah Terjual", min_value=1, step=1)
+    
+    # Ambil data produk terpilih
+    data_p = df[df['Produk'] == produk_pilih].iloc[0]
+    total_bayar = data_p['Harga Jual'] * qty
+    laba = (data_p['Harga Jual'] - data_p['Harga Modal']) * qty
+    
+    st.write(f"Total Bayar: **{format_rp(total_bayar)}**")
+    
+    if st.button("Proses & Hitung Laba"):
+        st.balloons()
+        st.success(f"Transaksi Berhasil! Laba: {format_rp(laba)}")
         
-        if st.button("Proses & Hitung Laba"):
-            idx = st.session_state.inventory[st.session_state.inventory['Produk'] == produk_pilih].index[0]
-            
-            # Update Stok
-            st.session_state.inventory.at[idx, 'Stok'] -= qty
-            sisa = st.session_state.inventory.at[idx, 'Stok']
-            
-            # Hitung Laba
-            laba = (st.session_state.inventory.at[idx, 'Harga Jual'] - st.session_state.inventory.at[idx, 'Harga Modal']) * qty
-            new_sale = pd.DataFrame([[datetime.now(), produk_pilih, laba]], columns=st.session_state.sales_history.columns)
-            st.session_state.sales_history = pd.concat([st.session_state.sales_history, new_sale], ignore_index=True)
-            
-            st.balloons()
-            st.success(f"Berhasil! Laba: Rp {laba:,.0f}")
-            
-            # FITUR WA: Jika stok di bawah 5
-            if sisa <= 5:
-                st.error(f"STOK KRITIS: Sisa {sisa}!")
-                wa_link = kirim_wa(produk_pilih, sisa)
-                st.link_button("📲 Kirim Notifikasi WA ke Owner", wa_link)
+        # Link Notif WA jika stok kritis
+        sisa_stok = data_p['Stok'] - qty
+        if sisa_stok <= 5:
+            pesan = f"⚠️ *STOK KRITIS: {produk_pilih}*\nSisa: {sisa_stok} pcs."
+            wa_url = f"https://wa.me/?text={urllib.parse.quote(pesan)}"
+            st.link_button("📲 Kirim Notif WA ke Owner", wa_url)
