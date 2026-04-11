@@ -14,6 +14,7 @@ def format_rp(angka):
     return f"Rp {angka:,.0f}".replace(",", ".")
 
 # --- 2. SISTEM LOGIN (MULTI-USER) ---
+# Daftar user untuk agen/member
 users = {
     "admin": "branz123",
     "agen_aisyah": "aisyah99",
@@ -139,14 +140,14 @@ elif menu == "Transaksi Penjualan":
                 st.balloons()
                 st.success(f"Transaksi Berhasil!")
                 
-                # --- STRUK DIGITAL DENGAN ALAMAT & HP ---
+                # --- STRUK DIGITAL DENGAN NOMOR WA ANDA ---
                 with st.expander("📝 LIHAT STRUK PENJUALAN", expanded=True):
                     st.markdown(f"""
                     <div style="border:1px solid #ddd; padding:20px; border-radius:10px; background-color: #1e1e1e; font-family: 'Courier New', Courier, monospace;">
                     <h3 style="text-align:center; margin-bottom: 5px;">BRANZ TECH PRO</h3>
                     <p style="text-align:center; font-size: 14px; margin-top: 0px;">
                         Jombang, Jawa Timur<br>
-                        WA: 0812-xxxx-xxxx
+                        WA: 085704223340
                     </p>
                     <hr style="border-top: 1px dashed #bbb;">
                     <p style="font-size: 14px;">
@@ -171,9 +172,10 @@ elif menu == "Transaksi Penjualan":
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Link Notif WA jika stok kritis
+                # Notifikasi WA ke nomor Anda jika stok menipis
                 if sisa_stok_tampilan <= 5:
                     st.warning(f"⚠️ Stok Hampir Habis! Sisa: {int(sisa_stok_tampilan)}")
                     pesan = f"⚠️ *PERINGATAN BRANZ TECH*\nStok *{produk_pilih}* sisa {int(sisa_stok_tampilan)} pcs."
-                    wa_url = f"https://wa.me/?text={urllib.parse.quote(pesan)}"
+                    # Mengarahkan langsung ke nomor Anda
+                    wa_url = f"https://wa.me/6285704223340?text={urllib.parse.quote(pesan)}"
                     st.link_button("📲 Kirim Notifikasi WA ke Owner", wa_url)
