@@ -3,7 +3,6 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
-import urllib.parse
 import os
 
 # --- 1. KONFIGURASI HALAMAN ---
@@ -14,7 +13,6 @@ def format_rp(angka):
     return f"Rp {angka:,.0f}".replace(",", ".")
 
 # --- 2. SISTEM LOGIN (MULTI-USER) ---
-# Daftar user untuk agen/member
 users = {
     "admin": "branz123",
     "agen_aisyah": "aisyah99",
@@ -48,19 +46,9 @@ except Exception as e:
     st.error(f"Koneksi GSheets Gagal: {e}")
     st.stop()
 
-# --- 4. SIDEBAR & NAVIGASI (OPTIMASI LOGO) ---
+# --- 4. SIDEBAR & NAVIGASI (TANPA LOGO) ---
 with st.sidebar:
-    current_dir = os.path.dirname(__file__)
-    logo_path = os.path.join(current_dir, "logo.png")
-    
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=200)
-    else:
-        try:
-            st.image("logo.png", width=200)
-        except:
-            st.title("🚀 BRANZ TECH")
-    
+    st.title("🚀 BRANZ TECH") 
     st.write(f"👤 User: **{st.session_state.user_now}**")
     st.write(f"📅 {datetime.now().strftime('%d/%m/%Y')}")
     st.divider()
@@ -108,12 +96,12 @@ if menu == "Dashboard & Grafik":
 
 # --- 6. UPDATE STOK ---
 elif menu == "Update Stok":
-    st.title("📥 Input Produk Baru")
-    st.info("Silakan update data langsung di Google Sheets Anda untuk perubahan permanen.")
+    st.title("📥 Update Data Stok")
+    st.info("Silakan update data langsung di Google Sheets untuk perubahan permanen.")
     st.link_button("📂 Buka Google Sheets", url)
     st.divider()
-    st.subheader("Data yang tersimpan saat ini:")
-    st.table(df)
+    st.subheader("Data Inventaris Saat Ini:")
+    st.table(df[['Produk', 'Stok', 'Harga Jual']])
 
 # --- 7. TRANSAKSI & STRUK DIGITAL ---
 elif menu == "Transaksi Penjualan":
@@ -125,10 +113,7 @@ elif menu == "Transaksi Penjualan":
         
         data_p = df[df['Produk'] == produk_pilih].iloc[0]
         harga_jual = data_p['Harga Jual']
-        harga_modal = data_p['Harga Modal']
         total_bayar = harga_jual * qty
-        laba = (harga_jual - harga_modal) * qty
-        sisa_stok_tampilan = data_p['Stok'] - qty
 
         st.write(f"Harga Satuan: **{format_rp(harga_jual)}**")
         st.write(f"Total Bayar: **{format_rp(total_bayar)}**")
@@ -140,15 +125,11 @@ elif menu == "Transaksi Penjualan":
                 st.balloons()
                 st.success(f"Transaksi Berhasil!")
                 
-                # --- STRUK DIGITAL DENGAN NOMOR WA ANDA ---
                 with st.expander("📝 LIHAT STRUK PENJUALAN", expanded=True):
                     st.markdown(f"""
                     <div style="border:1px solid #ddd; padding:20px; border-radius:10px; background-color: #1e1e1e; font-family: 'Courier New', Courier, monospace;">
                     <h3 style="text-align:center; margin-bottom: 5px;">BRANZ TECH PRO</h3>
-                    <p style="text-align:center; font-size: 14px; margin-top: 0px;">
-                        Jombang, Jawa Timur<br>
-                        WA: 085704223340
-                    </p>
+                    <p style="text-align:center; font-size: 14px; margin-top: 0px;">Jombang, Jawa Timur</p>
                     <hr style="border-top: 1px dashed #bbb;">
                     <p style="font-size: 14px;">
                         <b>Tanggal :</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}<br>
@@ -166,16 +147,7 @@ elif menu == "Transaksi Penjualan":
                     <h3 style="text-align:right;">TOTAL: {format_rp(total_bayar)}</h3>
                     <hr style="border-top: 1px dashed #bbb;">
                     <p style="text-align:center; font-size: 12px; margin-top: 20px;">
-                        <i>Terima kasih telah berbelanja!<br>
-                        Simpan struk ini sebagai bukti transaksi resmi.</i>
+                        <i>Terima kasih telah berbelanja!</i>
                     </p>
                     </div>
                     """, unsafe_allow_html=True)
-                
-                # Notifikasi WA ke nomor Anda jika stok menipis
-                if sisa_stok_tampilan <= 5:
-                    st.warning(f"⚠️ Stok Hampir Habis! Sisa: {int(sisa_stok_tampilan)}")
-                    pesan = f"⚠️ *PERINGATAN BRANZ TECH*\nStok *{produk_pilih}* sisa {int(sisa_stok_tampilan)} pcs."
-                    # Mengarahkan langsung ke nomor Anda
-                    wa_url = f"https://wa.me/6285704223340?text={urllib.parse.quote(pesan)}"
-                    st.link_button("📲 Kirim Notifikasi WA ke Owner", wa_url)
