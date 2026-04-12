@@ -32,8 +32,12 @@ URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-m
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
+    """Mengambil data dan membersihkan nama kolom secara otomatis."""
     try:
         data = conn.read(spreadsheet=URL_SHEET, ttl=0)
+        # --- PEMBERSIH KOLOM OTOMATIS ---
+        data.columns = data.columns.str.strip() 
+        
         df_clean = data.dropna(subset=['Produk']).copy()
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0)
         return df_clean
@@ -42,9 +46,12 @@ def load_data():
         return pd.DataFrame()
 
 def update_gsheets_stock(cart_items):
-    """Mengurangi stok di Google Sheets secara otomatis."""
+    """Mengurangi stok di Google Sheets dengan validasi kolom."""
     try:
         df_current = conn.read(spreadsheet=URL_SHEET, ttl=0)
+        # --- PEMBERSIH KOLOM OTOMATIS ---
+        df_current.columns = df_current.columns.str.strip()
+
         for item, qty_beli in cart_items.items():
             idx = df_current[df_current['Produk'] == item].index
             if not idx.empty:
@@ -54,11 +61,11 @@ def update_gsheets_stock(cart_items):
                     return False
                 df_current.loc[idx, 'Stok'] = stok_sekarang - qty_beli
         
-        # Kirim data ke Google Sheets (Membutuhkan Service Account di Secrets)
+        # Kirim data ke Google Sheets
         conn.update(spreadsheet=URL_SHEET, data=df_current)
         return True
     except Exception as e:
-        st.error(f"Gagal Update Stok: Pastikan Service Account sudah benar di Secrets! \n Error: {e}")
+        st.error(f"Gagal Update: Cek apakah Secrets sudah benar! \n Detail: {e}")
         return False
 
 # --- 3. RECEIPT GENERATOR ---
@@ -87,7 +94,7 @@ def generate_receipt(cart_items, total, operator, df_data):
     pdf.cell(0, 10, f"TOTAL: Rp {total:,.0f}", ln=True, align="R")
     pdf.cell(0, 5, "="*25, ln=True, align="C")
     pdf.set_font("Courier", "I", 8)
-    pdf.cell(0, 5, "Terima Kasih Atas Kepercayaan Anda", ln=True, align="C")
+    pdf.cell(0, 5, "Terima Kasih", ln=True, align="C")
     
     return pdf.output(dest='S').encode('latin-1')
 
@@ -177,19 +184,18 @@ elif menu == "🛒 Kasir (POS)":
             st.divider()
             st.write(f"### TOTAL: Rp {total:,.0f}")
             
-            # FITUR UTAMA: Satu Tombol untuk Update Stok & Cetak Struk
             if st.button("💎 SELESAIKAN & CETAK STRUK", use_container_width=True):
                 with st.spinner("Sinkronisasi Stok Cloud..."):
                     if update_gsheets_stock(st.session_state.cart):
                         receipt = generate_receipt(st.session_state.cart, total, st.session_state.user, df)
                         st.session_state.last_receipt = receipt
                         st.session_state.cart = {}
-                        st.success("Stok Berhasil Dipotong & Transaksi Selesai!")
+                        st.success("Transaksi Selesai!")
                         st.rerun()
 
         if st.session_state.last_receipt:
-            st.download_button("📥 DOWNLOAD STRUK TERAKHIR", st.session_state.last_receipt, 
-                             file_name=f"STRUK_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf", 
+            st.download_button("📥 DOWNLOAD STRUK", st.session_state.last_receipt, 
+                             file_name=f"STRUK_BRANZ.pdf", 
                              mime="application/pdf", use_container_width=True)
 
 elif menu == "📷 Scan Barcode":
