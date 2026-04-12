@@ -27,9 +27,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE ---
+# --- 2. DATA ENGINE (Koneksi Baru: branz_tech_db) ---
 URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
-conn = st.connection("gsheets", type=GSheetsConnection)
+conn = st.connection("branz_tech_db", type=GSheetsConnection)
 
 def load_data():
     """Mengambil data dan membersihkan nama kolom secara otomatis."""
@@ -61,11 +61,11 @@ def update_gsheets_stock(cart_items):
                     return False
                 df_current.loc[idx, 'Stok'] = stok_sekarang - qty_beli
         
-        # Kirim data ke Google Sheets
+        # Kirim data ke Google Sheets menggunakan koneksi branz_tech_db
         conn.update(spreadsheet=URL_SHEET, data=df_current)
         return True
     except Exception as e:
-        st.error(f"Gagal Update: Cek apakah Secrets sudah benar! \n Detail: {e}")
+        st.error(f"Gagal Update! Detail: {e}")
         return False
 
 # --- 3. RECEIPT GENERATOR ---
