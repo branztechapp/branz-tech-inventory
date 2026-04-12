@@ -27,38 +27,40 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE ---
-# Muhammad, pastikan file .streamlit/secrets.toml sudah berisi JSON Service Account
-# agar error "Public Spreadsheet cannot be written to" hilang.
+# --- 2. DATA ENGINE (OPTIMIZED) ---
 URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
 
-@st.cache_data(ttl=2)
+# Inisialisasi koneksi global agar lebih cepat
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 def load_data():
+    """Mengambil data stok terbaru tanpa cache agar real-time."""
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        # Menggunakan ttl=0 agar selalu mengambil data terbaru saat refresh
-        return conn.read(spreadsheet=URL_SHEET, ttl=0).dropna(subset=['Produk'])
+        # Menggunakan ttl=0 sangat penting untuk POS agar stok tidak 'delay'
+        data = conn.read(spreadsheet=URL_SHEET, ttl=0)
+        return data.dropna(subset=['Produk'])
     except Exception as e:
         st.error(f"Koneksi Gagal: {e}")
         return pd.DataFrame()
 
-def update_gsheets_stock(cart_items, df_original):
+def update_gsheets_stock(cart_items):
+    """Mengupdate stok ke Google Sheets menggunakan Service Account."""
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        updated_df = df_original.copy()
+        # Ambil data paling baru tepat sebelum update untuk menghindari tabrakan data
+        df_latest = conn.read(spreadsheet=URL_SHEET, ttl=0)
+        updated_df = df_latest.copy()
         
         for item, qty in cart_items.items():
             idx = updated_df[updated_df['Produk'] == item].index
             if not idx.empty:
-                # Update stok secara matematis
                 current_stock = updated_df.loc[idx, 'Stok'].values[0]
+                # Update stok secara matematis
                 updated_df.loc[idx, 'Stok'] = current_stock - qty
         
-        # PENTING: Operasi update memerlukan Service Account di Secrets!
+        # PENTING: Operasi update memerlukan JSON Service Account di Secrets!
         conn.update(spreadsheet=URL_SHEET, data=updated_df)
         return True
     except Exception as e:
-        # Menangkap error spesifik auth (cr1123.png)
         st.error(f"Gagal Update: Gunakan Service Account untuk akses tulis! \n r: {e}")
         return False
 
@@ -90,7 +92,6 @@ def generate_receipt(cart_items, total, operator, df_data):
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. AUTH & SESSION INITIALIZATION ---
-# Fix cr1118.png: Inisialisasi role agar tidak AttributeError
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'user' not in st.session_state: st.session_state.user = ""
 if 'role' not in st.session_state: st.session_state.role = "GUEST" 
@@ -116,9 +117,10 @@ if not st.session_state.auth:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 5. MAIN NAVIGATION ---
+# --- 5. DATA LOADING ---
 df = load_data()
 
+# --- 6. MAIN NAVIGATION ---
 with st.sidebar:
     st.markdown(f"### 🛡️ {st.session_state.role}")
     st.write(f"Active: **{st.session_state.user.upper()}**")
@@ -128,7 +130,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- 6. PAGE LOGIC ---
+# --- 7. PAGE LOGIC ---
 if menu == "📊 Dashboard":
     st.title("📈 Ringkasan Bisnis")
     if not df.empty:
@@ -165,6 +167,7 @@ elif menu == "🛒 Kasir (POS)":
         else:
             total = 0
             for prod, q in list(st.session_state.cart.items()):
+                # Gunakan data dari df yang sudah di-load
                 price = df[df['Produk'] == prod]['Harga Jual'].values[0]
                 sub = price * q
                 total += sub
@@ -179,17 +182,18 @@ elif menu == "🛒 Kasir (POS)":
             
             if st.button("💎 SELESAIKAN & CETAK STRUK", use_container_width=True):
                 with st.spinner("Mengirim data ke cloud..."):
-                    if update_gsheets_stock(st.session_state.cart, df):
+                    # Update stok menggunakan fungsi yang sudah dioptimasi
+                    if update_gsheets_stock(st.session_state.cart):
                         receipt = generate_receipt(st.session_state.cart, total, st.session_state.user, df)
                         st.session_state.last_receipt = receipt
                         st.session_state.cart = {}
-                        st.cache_data.clear()
                         st.success("Transaksi Berhasil!")
                         st.rerun()
 
         if st.session_state.last_receipt:
             st.download_button("📥 DOWNLOAD STRUK TERAKHIR", st.session_state.last_receipt, 
-                             file_name="Struk_BranzTech.pdf", mime="application/pdf", use_container_width=True)
+                             file_name=f"Struk_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf", 
+                             mime="application/pdf", use_container_width=True)
 
 elif menu == "📷 Scan":
     st.title("📷 Barcode Scanner")
