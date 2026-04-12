@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
-from PIL import Image
-from pyzbar.pyzbar import decode
-from fpdf import FPDF
 import datetime
 
 # --- 1. CONFIG & STYLING ---
@@ -18,16 +15,18 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. DATA ENGINE ---
+# URL Spreadsheet Anda
+URL_DB = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit#gid=0"
+
 # Koneksi otomatis membaca dari [connections.gsheets] di Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        # Membaca data tanpa cache (TTL=0) agar stok selalu akurat
-        data = conn.read(ttl=0)
+        # PENTING: Spreadsheet harus disebutkan di sini
+        data = conn.read(spreadsheet=URL_DB, ttl=0)
         data.columns = data.columns.str.strip() 
         df_clean = data.dropna(subset=['Produk']).copy()
-        # Konversi kolom ke angka agar bisa dijumlahkan
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0)
         df_clean['Harga Jual'] = pd.to_numeric(df_clean['Harga Jual'], errors='coerce').fillna(0)
         return df_clean
@@ -37,8 +36,8 @@ def load_data():
 
 def save_to_cloud(dataframe):
     try:
-        # Menulis kembali seluruh tabel ke Google Sheets secara permanen
-        conn.update(data=dataframe)
+        # PENTING: Spreadsheet harus disebutkan di sini agar tidak error "must be specified"
+        conn.update(spreadsheet=URL_DB, data=dataframe)
         st.cache_data.clear() 
         return True
     except Exception as e:
@@ -83,7 +82,6 @@ with st.sidebar:
         st.rerun()
 
 # --- 6. PAGE LOGIC ---
-
 if menu == "📊 Dashboard":
     st.title("📈 Business Analytics")
     if not df.empty:
@@ -112,7 +110,6 @@ elif menu == "🛒 Kasir (POS)":
         if pick:
             name_only = pick.split(" | ")[0]
             current_stock = df[df['Produk'] == name_only]['Stok'].values[0]
-            
             qty = st.number_input("Jumlah Beli", min_value=1, max_value=int(current_stock) if current_stock > 0 else 1, value=1)
             
             if st.button("➕ Tambah ke Keranjang", use_container_width=True):
@@ -130,7 +127,6 @@ elif menu == "🛒 Kasir (POS)":
         if not st.session_state.cart:
             st.info("Keranjang kosong.")
         else:
-            # PERBAIKAN: Menggunakan 'in' bukan 'dalam'
             for item, q in list(st.session_state.cart.items()):
                 price = df[df['Produk'] == item]['Harga Jual'].values[0]
                 sub = price * q
@@ -149,6 +145,6 @@ elif menu == "🛒 Kasir (POS)":
             if st.button("💎 SELESAIKAN & SIMPAN CLOUD", use_container_width=True):
                 with st.spinner("Mengupdate Google Sheets..."):
                     if save_to_cloud(st.session_state.df_local):
-                        st.success("Transaksi Berhasil! Stok Cloud Terupdate.")
+                        st.success("Transaksi Berhasil!")
                         st.session_state.cart = {}
                         st.rerun()
