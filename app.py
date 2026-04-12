@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 from PIL import Image
 from pyzbar.pyzbar import decode
 from fpdf import FPDF
+from datetime import datetime
 
 # --- CONFIG ---
 st.set_page_config(page_title="BRANZ TECH PRO", layout="wide")
