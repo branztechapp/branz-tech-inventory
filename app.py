@@ -67,15 +67,62 @@ elif menu == "Scan Barcode":
                 st.warning("Produk tidak ada di database Anda.")
 
 elif menu == "Kasir":
-    st.title("💸 Cetak Struk")
+    st.titelif menu == "Kasir":
+    st.title("💸 Kasir Digital & Cetak Struk")
+    
     if not df.empty:
-        prod = st.selectbox("Pilih Produk", df['Produk'].unique())
-        if st.button("Download Struk PDF"):
-            pdf = FPDF()
+        col_k1, col_k2 = st.columns([1, 1])
+        
+        with col_k1:
+            prod = st.selectbox("Pilih Produk", df['Produk'].unique())
+            qty = st.number_input("Jumlah Beli", min_value=1, step=1)
+            
+            # Ambil detail produk
+            data_produk = df[df['Produk'] == prod].iloc[0]
+            harga = data_produk['Harga Jual']
+            total = harga * qty
+            
+            st.subheader(f"Total: Rp {total:,.0f}")
+
+        if st.button("Generate Struk POS"):
+            # --- LOGIKA STRUK POS (VERTUKAL) ---
+            pdf = FPDF(format=(80, 150)) # Ukuran kertas termal 80mm
             pdf.add_page()
-            pdf.set_font("Arial", size=15)
-            pdf.cell(200, 10, txt=f"STRUK BRANZ TECH - {st.session_state.user}", ln=1, align='C')
-            pdf.cell(200, 10, txt=f"Produk: {prod}", ln=2)
-            pdf.output("struk.pdf")
-            with open("struk.pdf", "rb") as f:
-                st.download_button("Klik untuk Simpan Struk", f, file_name="struk.pdf")
+            
+            # Header Toko
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(60, 8, txt=f"BRANZ TECH PRO", ln=1, align='C')
+            pdf.set_font("Arial", '', 8)
+            pdf.cell(60, 5, txt=f"Partner: {st.session_state.user.upper()}", ln=1, align='C')
+            pdf.cell(60, 5, txt=f"{datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=1, align='C')
+            pdf.cell(60, 5, txt="-"*40, ln=1, align='C')
+
+            # Detail Barang
+            pdf.set_font("Arial", 'B', 9)
+            pdf.cell(30, 8, txt="Item", ln=0)
+            pdf.cell(10, 8, txt="Qty", ln=0)
+            pdf.cell(20, 8, txt="Total", ln=1, align='R')
+            
+            pdf.set_font("Arial", '', 9)
+            pdf.cell(30, 8, txt=f"{prod[:15]}", ln=0)
+            pdf.cell(10, 8, txt=f"{qty}", ln=0)
+            pdf.cell(20, 8, txt=f"{total:,.0f}", ln=1, align='R')
+            
+            # Footer
+            pdf.cell(60, 5, txt="-"*40, ln=1, align='C')
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(30, 10, txt="TOTAL", ln=0)
+            pdf.cell(30, 10, txt=f"Rp {total:,.0f}", ln=1, align='R')
+            
+            pdf.set_font("Arial", 'I', 8)
+            pdf.ln(5)
+            pdf.cell(60, 5, txt="Terima Kasih Telah Berbelanja", ln=1, align='C')
+
+            # Simpan & Download
+            file_name = f"struk_{datetime.now().strftime('%H%M%S')}.pdf"
+            pdf.output(file_name)
+            
+            with open(file_name, "rb") as f:
+                st.download_button("📥 Download Struk (Siap Cetak)", f, file_name=file_name)
+    else:
+        st.warning("Data inventaris Anda masih kosong.")
