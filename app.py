@@ -45,7 +45,25 @@ def load_data():
         st.error(f"Gagal memuat data: {e}")
         return pd.DataFrame()
 
-# --- 3. RECEIPT GENERATOR (STABLE VERSION) ---
+def update_gsheets_stock(cart_items, df_original):
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        updated_df = df_original.copy()
+        
+        for item, qty in cart_items.items():
+            idx = updated_df[updated_df['Produk'] == item].index
+            if not idx.empty:
+                # Logika pengurangan stok
+                updated_df.loc[idx, 'Stok'] = updated_df.loc[idx, 'Stok'] - qty
+        
+        # Kirim data kembali ke Google Sheets
+        conn.update(spreadsheet=url, data=updated_df)
+        return True
+    except Exception as e:
+        st.error(f"Gagal Update Stok ke Cloud: {e}")
+        return False
+
+# --- 3. RECEIPT GENERATOR ---
 def generate_receipt(cart_items, total, operator, df_data):
     pdf = FPDF(format=(80, 150))
     pdf.add_page()
@@ -73,8 +91,7 @@ def generate_receipt(cart_items, total, operator, df_data):
     pdf.cell(0, 10, f"TOTAL: Rp {total:,.0f}", ln=True, align="R")
     pdf.ln(5)
     pdf.set_font("Courier", "I", 7)
-    pdf.cell(0, 5, "Barang yang sudah dibeli", ln=True, align="C")
-    pdf.cell(0, 5, "tidak dapat ditukar/dikembalikan.", ln=True, align="C")
+    pdf.cell(0, 5, "Terima kasih atas kunjungan Anda", ln=True, align="C")
     
     return pdf.output(dest='S').encode('latin-1')
 
@@ -156,30 +173,37 @@ if menu == "🛒 Kasir Digital":
             st.markdown(f"## TOTAL: Rp {total_akhir:,.0f}")
             
             if st.button("💎 SELESAIKAN & CETAK STRUK", use_container_width=True):
-                receipt = generate_receipt(st.session_state.cart, total_akhir, st.session_state.user, df)
-                st.session_state.last_receipt = receipt
-                st.session_state.cart = {} # Bersihkan keranjang
-                st.balloons()
-                st.rerun()
+                # PROSES UPDATE STOK KE GOOGLE SHEETS
+                with st.spinner('Memproses transaksi & memperbarui stok...'):
+                    success = update_gsheets_stock(st.session_state.cart, df)
+                    
+                    if success:
+                        receipt = generate_receipt(st.session_state.cart, total_akhir, st.session_state.user, df)
+                        st.session_state.last_receipt = receipt
+                        st.session_state.cart = {} # Bersihkan keranjang belanja
+                        st.cache_data.clear() # Paksa ambil data stok terbaru dari Sheets
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("Gagal memperbarui stok. Transaksi dibatalkan.")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Area khusus Download Struk agar tidak hilang
         if st.session_state.last_receipt:
-            st.success("Transaksi sebelumnya berhasil dicetak!")
+            st.success("Transaksi Berhasil!")
             st.download_button(
-                label="📥 DOWNLOAD STRUK TERAKHIR (PDF)", 
+                label="📥 DOWNLOAD STRUK (PDF)", 
                 data=st.session_state.last_receipt, 
                 file_name=f"Struk_BT_{datetime.datetime.now().strftime('%H%M%S')}.pdf", 
                 mime="application/pdf", 
                 use_container_width=True
             )
-            if st.button("Mulai Transaksi Baru", use_container_width=True):
+            if st.button("Transaksi Baru", use_container_width=True):
                 st.session_state.last_receipt = None
                 st.rerun()
 
 elif menu == "📷 Scan Barcode":
     st.title("📷 Scanner Barcode")
-    st.info("Arahkan barcode ke kamera laptop/HP Anda.")
+    st.info("Arahkan barcode ke kamera.")
     cam = st.camera_input("Scanner Aktif")
     if cam:
         img = Image.open(cam)
@@ -196,22 +220,20 @@ elif menu == "📷 Scan Barcode":
                         st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
                         st.success("Masuk Keranjang!")
                 else:
-                    st.error("Produk tidak ditemukan di database.")
+                    st.error("Barcode tidak terdaftar di database.")
         else:
-            st.warning("Barcode tidak terbaca, coba lebih dekat/fokus.")
+            st.warning("Barcode tidak terbaca.")
 
 elif menu == "📊 Dashboard":
     st.title("📊 Ringkasan Bisnis")
     if not df.empty:
         col1, col2, col3 = st.columns(3)
         omzet = (df['Stok'] * df['Harga Jual']).sum()
-        col1.metric("Omzet Potensial", f"Rp {omzet:,.0f}")
-        col2.metric("Total Jenis Produk", len(df))
-        col3.metric("Total Item Stok", int(df['Stok'].sum()))
-        
-        st.subheader("Stok per Produk")
+        col1.metric("Aset Stok (Rp)", f"{omzet:,.0f}")
+        col2.metric("Varian Produk", len(df))
+        col3.metric("Total Unit", int(df['Stok'].sum()))
         st.bar_chart(df.set_index('Produk')['Stok'])
 
 elif menu == "📦 Inventory":
-    st.title("📦 Kelola Stok")
+    st.title("📦 Stok Real-time")
     st.dataframe(df, use_container_width=True, hide_index=True)
