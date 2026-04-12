@@ -29,7 +29,9 @@ st.markdown("""
 
 # --- 2. DATA ENGINE (Koneksi Baru: branz_tech_db) ---
 URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
-conn = st.connection("branz_tech_db", type=GSheetsConnection)
+
+# Pastikan menggunakan nama "gsheets"
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     """Mengambil data dan membersihkan nama kolom secara otomatis."""
