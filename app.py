@@ -15,7 +15,6 @@ st.markdown("""
     .stApp { background: radial-gradient(circle at top right, #1e293b, #0f172a); color: #f8fafc; }
     .stButton>button { border-radius: 10px !important; transition: 0.3s; font-weight: 600 !important; }
     .stMetric { background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.1); }
-    .critical-stock { color: #ff4b4b; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -32,7 +31,7 @@ def load_data():
         df_clean['Harga Jual'] = pd.to_numeric(df_clean['Harga Jual'], errors='coerce').fillna(0)
         return df_clean
     except Exception as e:
-        st.error(f"Gagal mengambil data: {e}")
+        st.error(f"Koneksi Gagal: Pastikan URL Spreadsheet benar dan dapat diakses.")
         return pd.DataFrame(columns=['Produk', 'Stok', 'Harga Jual'])
 
 # --- 3. SESSION STATE ---
@@ -57,48 +56,61 @@ if not st.session_state.auth:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 5. FUNGSI CETAK PDF (Dengan Pajak & Diskon) ---
+# --- 5. FUNGSI CETAK STRUK ALA MALL (PREMIUM) ---
 def generate_receipt(cart_data, subtotal, discount, tax, total, customer, user, df_ref):
-    pdf = FPDF()
+    # Setup PDF dengan ukuran struk thermal 80mm
+    pdf = FPDF(format=(80, 150)) 
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, "BRANZ TECH PRESTIGE", ln=True, align='C')
-    pdf.set_font("Arial", size=10)
-    pdf.cell(190, 7, f"Tanggal: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
-    pdf.cell(190, 7, f"Pelanggan: {customer if customer else 'Umum'}", ln=True, align='C')
-    pdf.cell(190, 7, f"Kasir: {user.upper()}", ln=True, align='C')
-    pdf.ln(10)
+    pdf.set_margins(5, 5, 5)
     
-    pdf.set_font("Arial", 'B', 11)
-    pdf.cell(80, 10, "Produk", 1)
-    pdf.cell(20, 10, "Qty", 1)
-    pdf.cell(45, 10, "Harga", 1)
-    pdf.cell(45, 10, "Subtotal", 1, ln=True)
+    # Header Toko
+    pdf.set_font("Courier", 'B', 12)
+    pdf.cell(70, 5, "BRANZ TECH PRESTIGE", ln=True, align='C')
+    pdf.set_font("Courier", size=8)
+    pdf.cell(70, 4, "Jombang, Jawa Timur", ln=True, align='C')
+    pdf.cell(70, 4, "-"*35, ln=True, align='C')
     
-    pdf.set_font("Arial", size=11)
+    # Info Transaksi
+    pdf.cell(70, 4, f"Tgl: {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}", ln=True)
+    pdf.cell(70, 4, f"Kasir: {user.upper()}", ln=True)
+    pdf.cell(70, 4, f"Cust : {customer if customer else 'Pelanggan Umum'}", ln=True)
+    pdf.cell(70, 4, "="*35, ln=True, align='C')
+    
+    # Daftar Barang
+    pdf.set_font("Courier", 'B', 8)
     for item, q in cart_data.items():
         price = df_ref[df_ref['Produk'] == item]['Harga Jual'].values[0]
-        pdf.cell(80, 10, str(item), 1)
-        pdf.cell(20, 10, str(q), 1)
-        pdf.cell(45, 10, f"{price:,.0f}", 1)
-        pdf.cell(45, 10, f"{price*q:,.0f}", 1, ln=True)
+        # Baris Nama Barang
+        pdf.cell(70, 4, f"{item[:25]}", ln=True)
+        # Baris Harga dan Subtotal
+        pdf.set_font("Courier", size=8)
+        pdf.cell(35, 4, f"  {q} x {price:,.0f}", 0)
+        pdf.cell(35, 4, f"{price*q:,.0f}", 0, 1, 'R')
+    
+    pdf.cell(70, 4, "-"*35, ln=True, align='C')
+    
+    # Ringkasan Pembayaran
+    pdf.cell(40, 5, "Subtotal", 0)
+    pdf.cell(30, 5, f"{subtotal:,.0f}", 0, 1, 'R')
+    
+    if discount > 0:
+        pdf.cell(40, 5, "Diskon", 0)
+        pdf.cell(30, 5, f"-{discount:,.0f}", 0, 1, 'R')
+        
+    if tax > 0:
+        pdf.cell(40, 5, "PPN 11%", 0)
+        pdf.cell(30, 5, f"{tax:,.0f}", 0, 1, 'R')
+        
+    pdf.set_font("Courier", 'B', 10)
+    pdf.cell(40, 7, "TOTAL", 0)
+    pdf.cell(30, 7, f"Rp {total:,.0f}", 0, 1, 'R')
     
     pdf.ln(5)
-    pdf.set_font("Arial", size=11)
-    pdf.cell(145, 7, "Subtotal:", 0, 0, 'R')
-    pdf.cell(45, 7, f"Rp {subtotal:,.0f}", 0, 1, 'R')
-    pdf.cell(145, 7, f"Diskon:", 0, 0, 'R')
-    pdf.cell(45, 7, f"- Rp {discount:,.0f}", 0, 1, 'R')
-    pdf.cell(145, 7, f"Pajak (PPN):", 0, 0, 'R')
-    pdf.cell(45, 7, f"Rp {tax:,.0f}", 0, 1, 'R')
-    
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(145, 10, "TOTAL AKHIR:", 0, 0, 'R')
-    pdf.cell(45, 10, f"Rp {total:,.0f}", 0, 1, 'R')
-    
-    pdf.ln(10)
-    pdf.set_font("Arial", 'I', 8)
-    pdf.cell(190, 10, "Terima kasih atas kunjungan Anda!", 0, 0, 'C')
+    pdf.set_font("Courier", 'I', 7)
+    pdf.cell(70, 4, "Barang yang sudah dibeli", ln=True, align='C')
+    pdf.cell(70, 4, "tidak dapat ditukar/dikembalikan", ln=True, align='C')
+    pdf.set_font("Courier", 'B', 8)
+    pdf.cell(70, 8, "*** TERIMA KASIH ***", ln=True, align='C')
     
     return pdf.output(dest='S').encode('latin-1')
 
@@ -111,16 +123,12 @@ with st.sidebar:
     menu = st.radio("Menu Navigasi", ["📊 Dashboard", "🛒 Kasir (POS)", "📦 Inventaris Stok", "📜 Riwayat Transaksi"])
     st.divider()
     
-    # Fitur 5: Export Laporan
     st.subheader("💾 Backup Data")
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Export Inventaris (CSV)", data=csv, file_name=f"Inventaris_BranzTech_{datetime.date.today()}.csv", mime='text/csv', use_container_width=True)
+    st.download_button("📥 Export Inventaris (CSV)", data=csv, file_name=f"Inventaris_{datetime.date.today()}.csv", mime='text/csv', use_container_width=True)
     
-    if st.button("🔄 Sync Cloud Data", use_container_width=True):
+    if st.button("🔄 Reload Data", use_container_width=True):
         st.session_state.df_local = load_data()
-        st.rerun()
-    if st.button("🚪 Logout", use_container_width=True):
-        st.session_state.clear()
         st.rerun()
 
 # --- 7. PAGE LOGIC ---
@@ -129,46 +137,36 @@ if menu == "📊 Dashboard":
     st.title("📈 Business Summary")
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Produk", len(df))
-    # Fitur 4: Alert Stok Kritis
-    low_stock_count = len(df[df['Stok'] < 3])
-    c2.metric("Stok Kritis (<3)", low_stock_count, delta=-low_stock_count, delta_color="inverse")
+    low_stock = len(df[df['Stok'] < 3])
+    c2.metric("Stok Kritis (<3)", low_stock)
     c3.metric("Estimasi Aset", f"Rp {(df['Stok'] * df['Harga Jual']).sum():,.0f}")
-    
-    if low_stock_count > 0:
-        st.warning(f"Ada {low_stock_count} produk yang hampir habis! Segera cek Inventaris.")
     st.bar_chart(df.set_index('Produk')['Stok'])
 
 elif menu == "📦 Inventaris Stok":
     st.title("📦 Database Inventaris")
     search = st.text_input("Cari Produk...")
     
-    # Fitur 4: Highlight Stok Rendah
-    def highlight_low_stock(val):
-        color = 'red' if val < 3 else 'white'
-        return f'color: {color}'
+    # Perbaikan: Menggunakan map() untuk menghindari AttributeError di versi baru
+    def color_stock(val):
+        return 'color: #ff4b4b' if val < 3 else 'color: white'
 
     display_df = df[df['Produk'].str.contains(search, case=False)] if search else df
-    st.dataframe(display_df.style.applymap(highlight_low_stock, subset=['Stok']), use_container_width=True)
+    st.dataframe(display_df.style.map(color_stock, subset=['Stok']), use_container_width=True)
 
 elif menu == "📜 Riwayat Transaksi":
     st.title("📜 Log Transaksi Harian")
     if not st.session_state.history:
-        st.info("Belum ada transaksi hari ini.")
+        st.info("Belum ada transaksi.")
     else:
-        history_df = pd.DataFrame(st.session_state.history)
-        st.dataframe(history_df, use_container_width=True)
-        st.metric("Total Penjualan Sesi Ini", f"Rp {history_df['Total'].sum():,.0f}")
+        st.table(pd.DataFrame(st.session_state.history))
 
 elif menu == "🛒 Kasir (POS)":
     st.title("🛒 POS Terminal")
-    
     col_pos, col_cart = st.columns([1.4, 1])
 
     with col_pos:
-        # Fitur 3: Manajemen Pelanggan
         st.subheader("👤 Data Pelanggan")
-        cust_name = st.text_input("Nama Pelanggan / WA", placeholder="Contoh: Budi - 0812...")
-        
+        cust_name = st.text_input("Nama Pelanggan / WA")
         st.divider()
         st.subheader("🛍️ Pilih Produk")
         options = [f"{r['Produk']} | Stok: {int(r['Stok'])}" for _, r in df.iterrows()]
@@ -177,9 +175,9 @@ elif menu == "🛒 Kasir (POS)":
         if pick:
             name = pick.split(" | ")[0]
             current_s = df[df['Produk'] == name]['Stok'].values[0]
-            q_input = st.number_input("Jumlah Beli", min_value=1, max_value=int(current_s) if current_s > 0 else 1, value=1)
+            q_input = st.number_input("Jumlah", min_value=1, max_value=int(current_s) if current_s > 0 else 1)
             
-            if st.button("➕ Tambah ke Keranjang", use_container_width=True):
+            if st.button("➕ Tambah Ke Keranjang", use_container_width=True):
                 st.session_state.cart[name] = st.session_state.cart.get(name, 0) + q_input
                 st.session_state.df_local.loc[df['Produk'] == name, 'Stok'] -= q_input
                 st.rerun()
@@ -188,12 +186,11 @@ elif menu == "🛒 Kasir (POS)":
         st.subheader("📝 Keranjang")
         subtotal = 0
         if not st.session_state.cart:
-            st.write("Keranjang kosong.")
+            st.write("Kosong")
         else:
             for item, q in list(st.session_state.cart.items()):
                 prc = df[df['Produk'] == item]['Harga Jual'].values[0]
-                res = prc * q
-                subtotal += res
+                subtotal += (prc * q)
                 c_info, c_del = st.columns([4, 1])
                 c_info.write(f"**{item}** ({q}x)")
                 if c_del.button("🗑️", key=f"del_{item}"):
@@ -202,32 +199,35 @@ elif menu == "🛒 Kasir (POS)":
                     st.rerun()
             
             st.divider()
-            # Fitur 2: Diskon & Pajak
             col_d, col_t = st.columns(2)
-            disc_input = col_d.number_input("Diskon (Rp)", min_value=0, step=500)
-            tax_rate = col_t.selectbox("Pajak (PPN)", [0, 0.11], format_func=lambda x: f"{int(x*100)}%")
+            disc = col_d.number_input("Diskon (Rp)", min_value=0, step=500)
+            tax_rate = col_t.selectbox("Pajak", [0, 0.11], format_func=lambda x: "PPN 11%" if x > 0 else "0%")
             
-            tax_val = (subtotal - disc_input) * tax_rate
-            total_akhir = subtotal - disc_input + tax_val
+            tax_val = (subtotal - disc) * tax_rate
+            total_akhir = subtotal - disc + tax_val
             
             st.write(f"Subtotal: Rp {subtotal:,.0f}")
-            st.write(f"Total Akhir: **Rp {total_akhir:,.0f}**")
+            st.write(f"### Total: Rp {total_akhir:,.0f}")
             
             if st.button("🏁 SELESAIKAN TRANSAKSI", use_container_width=True):
-                # Fitur 1: Simpan ke Riwayat
-                new_log = {
-                    "Waktu": datetime.datetime.now().strftime("%H:%M:%S"),
-                    "Pelanggan": cust_name if cust_name else "Umum",
-                    "Item": ", ".join(st.session_state.cart.keys()),
+                # Simpan Log
+                st.session_state.history.append({
+                    "Jam": datetime.datetime.now().strftime("%H:%M"),
+                    "Customer": cust_name if cust_name else "Umum",
                     "Total": total_akhir
-                }
-                st.session_state.history.append(new_log)
+                })
                 
-                # Buat PDF
-                receipt_pdf = generate_receipt(st.session_state.cart, subtotal, disc_input, tax_val, total_akhir, cust_name, st.session_state.user, df)
+                # Render Struk Mall
+                pdf_output = generate_receipt(st.session_state.cart, subtotal, disc, tax_val, total_akhir, cust_name, st.session_state.user, df)
                 
-                st.download_button("📥 Download Struk PDF", data=receipt_pdf, file_name=f"BRANZ_{datetime.datetime.now().strftime('%H%M%S')}.pdf", mime="application/pdf", use_container_width=True)
+                st.download_button(
+                    label="📥 Cetak Struk (PDF)",
+                    data=pdf_output,
+                    file_name=f"Struk_{datetime.datetime.now().strftime('%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
                 
                 st.session_state.cart = {}
-                st.success("Transaksi Berhasil Dicatat!")
+                st.success("Transaksi Berhasil!")
                 st.balloons()
