@@ -27,15 +27,34 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE ---
-# Gunakan nama standar "gsheets" agar sinkron dengan Secrets
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- 2. DATA ENGINE (MODIFIKASI LANGSUNG) ---
+from streamlit_gsheets import GSheetsConnection
+
+# Masukkan kredensial langsung ke dalam kode
+service_account_info = {
+    "type": "service_account",
+    "project_id": "branz-tech-pos",
+    "private_key_id": "577a5f3591e532f094844bbdfadff8f11d0c4415",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQClnYwGprwHmO5m\ncCkAaBZH0tExIwkZ4LIYKgFlSlAAl6A1QcMjomajGcl20OelAbZJ5Aq4foUwxE4O\nYlDAp5BqjjsrWce8BpwC8bFOeJ0/us66dh5pUhIbao1NtWN0F5SUBYXbHb594xtc\njWaEh9aLZNUG3bJufXlQ6m514UTy0KSuUK00pamuehszWqlTs4gg93YzxJ72PS5b\nZWniKgSV27tycja34SpTjBeCIBUuqu4TfPnhsisbYAiJCFpDBcA02bWwlkFR5Ii2\nKxZPrHnE4F9+hrG7UE6Ico3jqEtSkPUnjLy82PPH8SGqmWDBwbqqKcl3ro1NZBzt\njbS/DhtLAgMBAAECggEAGnDHrTwrYs8gqIwZj64OeJMIwN6GEnKUHFWAeYpesWmD\ns1z3aZYA6uMwDd8WTHq0fqGAsKnKW9nLWHKLz+YwoUJp4ebog3VOrQ2nMA8Dk+wg\nGxbGjiwDJgth2dkuspcdKnCjSTM7eV+ru5/7kQca0pBbjkgQt6EioC99SSaY2mcB\nQpQ6Rv2qRcIMzaAF1bk1AtbqAJSLK8eDYhbVzuaW1+5faothOb3xa9bfS6xteLFu\nlvC1IiY1vs+0pdCUEC0OLl7haVaDZiGS+UuZKQVKH+ox0YcRNmZNGkpJ+js4H9Y0\n2Xji5YYSh6ectOVbD9LPCvOB1qYn8zYTIg8j3/HY8QKBgQDXm/y/C0JUZ658PHj4\nwAiq+IPUvIxZ4UPijxk7L3YRVScqNrab2uKylVN9K0HTZ/dyRJ+ukbOy9kM82VIW\nnmZEbbDcNaS7SF62+i3g2Q2ZdFBGGrxjoXSdTAqE+bsGJIduqg9D4cdpbXCuASWE\nXjrvrUINO5WNT3mk/PY9i+dCyQKBgQDEo/5SvakVI0LcNrI8lYzl6obwbwKLyL3p\nCKca3JS8gchgkfXLIk4tg9XTW+QHE5RON3RNw0AeCCgjHorvlHKBDW2Cfn43XAbV\nBCD3/JeCD+muFWZ1/tu6nexF+JoyC44MFrwGjz7aMlK9AIebYAfo0btO3NjbWwNL\nVTfsRezDcwKBgQCkJh8jt8e1CQa/kS6se09eEzwS78WO/EC5sSaNd9HU2lap/ePC\n/r9PJP7eMdu4vtOWDIbh2g3Mt05zeiTUEZ5chIJ89N5Is41gk1HweG+xH+upo9s/\nowFsbCMqIBLyV0dAyno6vR8btfVulHLitvb52JeMCYwPfK1pHim+q8/SeQKBgFHA\n2Kivv49RNKf3eYzkpEqmgemOTaGuGP68oTTyxkfFMXis1mLY5WXY7NpN1vT2N+94\n8Lqv1YVm4MERHrRSpHRxD7l0O6dqdFC1wbs4Ygkp8n502T9vcQ0aQTQqEnmCAlGW\nVh/oCDqRN4LqqHZ5q3ApWlWETgiMw0bbrD9oJvJvAoGAKhMLuw6ScwftLn/O7FlT\n6NwVPBzIczVUSvbswIw6W2D0AEzwwJ/Fysm8AGmQZpuGsAJegJ5huRKdVGyvGmRM\nQyeBgQevXX519iNbAuBLHcxWFCWzdHZ2fgg6lMd28e72Qc7feudJKW45dd4i8fhj\nx6Pigg5Tg1JuYn45+zmKkwM=\n-----END PRIVATE KEY-----\n",
+    "client_email": "gsheets-connector@branz-tech-pos.iam.gserviceaccount.com",
+    "client_id": "101819979469639504044",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/gsheets-connector%40branz-tech-pos.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+}
+
+# Hubungkan dengan kredensial di atas
+conn = st.connection("gsheets", type=GSheetsConnection, service_account=service_account_info)
+
+URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
 
 def load_data():
     try:
-        # Panggil tanpa URL agar memaksa sistem mencari kredensial di Secrets
-        data = conn.read(ttl=0) 
-        data.columns = data.columns.str.strip()
+        # Gunakan URL langsung di sini
+        data = conn.read(spreadsheet=URL_SHEET, ttl=0)
+        data.columns = data.columns.str.strip() 
         df_clean = data.dropna(subset=['Produk']).copy()
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0)
         return df_clean
@@ -45,8 +64,7 @@ def load_data():
 
 def update_gsheets_stock(cart_items):
     try:
-        # Ambil data terbaru
-        df_current = conn.read(ttl=0)
+        df_current = conn.read(spreadsheet=URL_SHEET, ttl=0)
         df_current.columns = df_current.columns.str.strip()
 
         for item, qty_beli in cart_items.items():
@@ -55,14 +73,12 @@ def update_gsheets_stock(cart_items):
                 stok_sekarang = df_current.loc[idx, 'Stok'].values[0]
                 df_current.loc[idx, 'Stok'] = stok_sekarang - qty_beli
         
-        # Kirim update
-        conn.update(data=df_current) 
+        # Kirim update ke URL
+        conn.update(spreadsheet=URL_SHEET, data=df_current)
         return True
     except Exception as e:
-        # Tampilkan error detail agar kita tahu apakah Service Account-nya terbaca
         st.error(f"Gagal Update! Detail: {e}")
         return False
-
 # --- 3. RECEIPT GENERATOR ---
 def generate_receipt(cart_items, total, operator, df_data):
     pdf = FPDF(format=(80, 150))
