@@ -106,7 +106,6 @@ elif menu == "🛒 Kasir (POS)":
     
     with col_left:
         st.subheader("Input Produk")
-        # Format list untuk dropdown: "Nama | Sisa: 10"
         prod_options = [f"{r['Produk']} | Sisa: {int(r['Stok'])}" for _, r in df.iterrows()]
         pick = st.selectbox("Pilih Barang", [""] + prod_options)
         
@@ -118,9 +117,7 @@ elif menu == "🛒 Kasir (POS)":
             
             if st.button("➕ Tambah ke Keranjang", use_container_width=True):
                 if current_stock >= qty:
-                    # Update Keranjang
                     st.session_state.cart[name_only] = st.session_state.cart.get(name_only, 0) + qty
-                    # Kurangi stok lokal di memori aplikasi
                     idx = df[df['Produk'] == name_only].index
                     st.session_state.df_local.loc[idx, 'Stok'] -= qty
                     st.rerun()
@@ -133,14 +130,14 @@ elif menu == "🛒 Kasir (POS)":
         if not st.session_state.cart:
             st.info("Keranjang kosong.")
         else:
-            for item, q dalam list(st.session_state.cart.items()):
+            # PERBAIKAN: Menggunakan 'in' bukan 'dalam'
+            for item, q in list(st.session_state.cart.items()):
                 price = df[df['Produk'] == item]['Harga Jual'].values[0]
                 sub = price * q
                 total_belanja += sub
                 c_item, c_del = st.columns([4, 1])
                 c_item.write(f"**{item}** \n{q} x Rp {price:,.0f} = Rp {sub:,.0f}")
                 if c_del.button("🗑️", key=f"del_{item}"):
-                    # Kembalikan stok lokal jika batal
                     idx = df[df['Produk'] == item].index
                     st.session_state.df_local.loc[idx, 'Stok'] += st.session_state.cart[item]
                     del st.session_state.cart[item]
@@ -153,5 +150,5 @@ elif menu == "🛒 Kasir (POS)":
                 with st.spinner("Mengupdate Google Sheets..."):
                     if save_to_cloud(st.session_state.df_local):
                         st.success("Transaksi Berhasil! Stok Cloud Terupdate.")
-                        st.session_state.cart = {} # Reset keranjang
+                        st.session_state.cart = {}
                         st.rerun()
