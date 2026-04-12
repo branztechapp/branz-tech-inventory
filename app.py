@@ -77,6 +77,13 @@ if 'auth' not in st.session_state: st.session_state.auth = False
 if 'cart' not in st.session_state: st.session_state.cart = {}
 if 'last_receipt' not in st.session_state: st.session_state.last_receipt = None
 
+# --- 5. DATA LOADING (LOCAL PERSISTENCE) ---
+if 'df_local' not in st.session_state:
+    st.session_state.df_local = load_data()
+
+# Selalu gunakan df_local agar perubahan stok tersimpan selama sesi aktif
+df = st.session_state.df_local
+
 if not st.session_state.auth:
     _, center, _ = st.columns([1, 2, 1])
     with center:
@@ -93,22 +100,17 @@ if not st.session_state.auth:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 5. GLOBAL DATA MANAGEMENT ---
-# Inisialisasi data lokal agar tidak bolak-balik ke cloud
-if 'df_local' not in st.session_state:
-    st.session_state.df_local = load_data()
-
-df = st.session_state.df_local
-
+# --- SIDEBAR NAV ---
 with st.sidebar:
     st.markdown(f"### 🛡️ {st.session_state.role}")
     st.write(f"User: **{st.session_state.user.upper()}**")
     st.divider()
     menu = st.radio("Navigasi", ["📊 Dashboard", "📦 Inventaris", "🛒 Kasir (POS)", "📷 Scan Barcode"])
     
+    st.divider()
     if st.button("🔄 Sync Cloud (Refresh Data)", use_container_width=True):
         st.session_state.df_local = load_data()
-        st.success("Data disinkronkan!")
+        st.success("Data Terbaru Dimuat!")
         st.rerun()
 
     if st.button("Logout", use_container_width=True):
@@ -147,10 +149,10 @@ elif menu == "🛒 Kasir (POS)":
                 
                 amount = st.number_input("Jumlah Beli", min_value=1, max_value=int(stok_avail) if stok_avail > 0 else 1, value=1)
                 
-                if st.button("➕ TAMBAH KE KERANJANG", use_container_width=True):
+                if st.button("➕ TAMBAH", use_container_width=True):
                     if stok_avail >= amount:
                         st.session_state.cart[pick_name] = st.session_state.cart.get(pick_name, 0) + amount
-                        # Potong stok di memori aplikasi
+                        # POTONG STOK LOKAL
                         idx = df[df['Produk'] == pick_name].index
                         st.session_state.df_local.loc[idx, 'Stok'] -= amount
                         st.rerun()
@@ -172,7 +174,7 @@ elif menu == "🛒 Kasir (POS)":
                 c_a.write(f"**{prod}** \n{q} x Rp {price:,.0f} = Rp {sub:,.0f}")
                 
                 if c_b.button("🗑️", key=f"del_{prod}"):
-                    # Kembalikan stok ke memori aplikasi jika dihapus
+                    # KEMBALIKAN STOK LOKAL
                     idx = df[df['Produk'] == prod].index
                     st.session_state.df_local.loc[idx, 'Stok'] += st.session_state.cart[prod]
                     del st.session_state.cart[prod]
@@ -184,15 +186,14 @@ elif menu == "🛒 Kasir (POS)":
             if st.button("💎 SELESAIKAN & CETAK STRUK", use_container_width=True):
                 receipt = generate_receipt(st.session_state.cart, total, st.session_state.user, df)
                 st.session_state.last_receipt = receipt
-                st.session_state.cart = {} # Reset keranjang
-                st.success("Berhasil! Silakan unduh struk.")
+                st.session_state.cart = {} 
+                st.success("Transaksi Berhasil! Stok aplikasi diperbarui.")
 
         if st.session_state.last_receipt:
-            st.download_button("📥 DOWNLOAD STRUK TERAKHIR", 
+            st.download_button("📥 DOWNLOAD STRUK", 
                              st.session_state.last_receipt, 
                              file_name=f"STRUK_BRANZ_{datetime.datetime.now().strftime('%H%M%S')}.pdf", 
-                             mime="application/pdf", 
-                             use_container_width=True)
+                             mime="application/pdf", use_container_width=True)
 
 elif menu == "📷 Scan Barcode":
     st.title("📷 Scanner")
@@ -206,10 +207,10 @@ elif menu == "📷 Scan Barcode":
                 name = match['Produk'].values[0]
                 st.info(f"Terdeteksi: {name}")
                 if st.button("Tambah 1 ke Keranjang"):
-                    # Potong stok memori
                     idx = df[df['Produk'] == name].index
                     if st.session_state.df_local.loc[idx, 'Stok'].values[0] >= 1:
                         st.session_state.cart[name] = st.session_state.cart.get(name, 0) + 1
+                        # POTONG STOK LOKAL
                         st.session_state.df_local.loc[idx, 'Stok'] -= 1
                         st.rerun()
                     else:
