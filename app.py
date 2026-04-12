@@ -28,16 +28,14 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. DATA ENGINE ---
-# Gunakan nama "gsheets" agar sesuai dengan label standar di Secrets
+# Gunakan nama standar "gsheets" agar sinkron dengan Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    """Mengambil data dan membersihkan nama kolom secara otomatis."""
     try:
-        # Cukup panggil tanpa URL karena sudah ada di Secrets
+        # Panggil tanpa URL agar memaksa sistem mencari kredensial di Secrets
         data = conn.read(ttl=0) 
-        data.columns = data.columns.str.strip() 
-        
+        data.columns = data.columns.str.strip()
         df_clean = data.dropna(subset=['Produk']).copy()
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0)
         return df_clean
@@ -46,9 +44,8 @@ def load_data():
         return pd.DataFrame()
 
 def update_gsheets_stock(cart_items):
-    """Mengurangi stok di Google Sheets dengan validasi kolom."""
     try:
-        # Ambil data terbaru sebelum update
+        # Ambil data terbaru
         df_current = conn.read(ttl=0)
         df_current.columns = df_current.columns.str.strip()
 
@@ -56,15 +53,13 @@ def update_gsheets_stock(cart_items):
             idx = df_current[df_current['Produk'] == item].index
             if not idx.empty:
                 stok_sekarang = df_current.loc[idx, 'Stok'].values[0]
-                if stok_sekarang < qty_beli:
-                    st.error(f"Stok {item} tidak cukup! (Tersisa: {stok_sekarang})")
-                    return False
                 df_current.loc[idx, 'Stok'] = stok_sekarang - qty_beli
         
-        # UPDATE: Langsung kirim df_current ke koneksi "gsheets"
+        # Kirim update
         conn.update(data=df_current) 
         return True
     except Exception as e:
+        # Tampilkan error detail agar kita tahu apakah Service Account-nya terbaca
         st.error(f"Gagal Update! Detail: {e}")
         return False
 
