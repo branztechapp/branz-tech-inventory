@@ -13,12 +13,14 @@ def apply_custom_style():
         .stApp { background: radial-gradient(circle at top right, #1e293b, #0f172a); color: #f8fafc; }
         .stButton>button { border-radius: 10px !important; transition: 0.3s; font-weight: 600 !important; }
         .stMetric { background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.1); }
+        /* Mengatur agar input barcode lebih menonjol */
+        div[data-baseweb="input"] { border: 1px solid #3b82f6 !important; }
         </style>
         """, unsafe_allow_html=True)
 
 apply_custom_style()
 
-# --- 2. DATA ENGINE ---
+# --- 2. DATA ENGINE (OPTIMIZED) ---
 URL_DB = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -28,15 +30,19 @@ def load_data():
         data = conn.read(spreadsheet=URL_DB, ttl=0)
         data.columns = data.columns.str.strip() 
         df_clean = data.dropna(subset=['Produk']).copy()
+        
+        # Konversi numerik
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0)
         df_clean['Harga Jual'] = pd.to_numeric(df_clean['Harga Jual'], errors='coerce').fillna(0)
-        # Pastikan kolom Barcode ada, jika tidak buat kolom kosong
+        
+        # Inisialisasi & Pembersihan Kolom Barcode
         if 'Barcode' not in df_clean.columns:
             df_clean['Barcode'] = ""
         df_clean['Barcode'] = df_clean['Barcode'].astype(str).str.strip()
+        
         return df_clean
-    except Exception:
-        st.error("Koneksi Gagal: Cek URL Spreadsheet.")
+    except Exception as e:
+        st.error(f"Koneksi Gagal: {e}")
         return pd.DataFrame(columns=['Produk', 'Stok', 'Harga Jual', 'Barcode'])
 
 # --- 3. SESSION STATE ---
@@ -86,12 +92,12 @@ def generate_receipt(cart_data, subtotal, discount, tax, total, customer, user, 
         pdf.cell(35, 4, f"{price*q:,.0f}", 0, 1, 'R')
     
     pdf.cell(70, 4, "-"*35, ln=True, align='C')
-    pdf.cell(40, 5, "Subtotal", 0)
-    pdf.cell(30, 5, f"{subtotal:,.0f}", 0, 1, 'R')
+    pdf.cell(40, 5, "Subtotal", 0); pdf.cell(30, 5, f"{subtotal:,.0f}", 0, 1, 'R')
     if discount > 0:
         pdf.cell(40, 5, "Diskon", 0); pdf.cell(30, 5, f"-{discount:,.0f}", 0, 1, 'R')
     if tax > 0:
         pdf.cell(40, 5, "PPN 11%", 0); pdf.cell(30, 5, f"{tax:,.0f}", 0, 1, 'R')
+    
     pdf.set_font("Courier", 'B', 10)
     pdf.cell(40, 7, "TOTAL", 0); pdf.cell(30, 7, f"Rp {total:,.0f}", 0, 1, 'R')
     pdf.set_font("Courier", 'B', 8)
@@ -126,36 +132,32 @@ if menu == "📊 Dashboard":
 elif menu == "📦 Inventaris Stok":
     st.title("📦 Database & Tambah Stok")
     
-    # FITUR BARCODE: Input Stok
-    with st.expander("⚡ Quick Update Stok (Scan Barcode)"):
-        bc_input = st.text_input("Scan Barcode Produk untuk Tambah 1 Stok", key="scan_inv")
+    # BARCODE UNTUK UPDATE STOK MASUK
+    with st.expander("⚡ QUICK UPDATE STOK (SCAN BARCODE)"):
+        bc_input = st.text_input("Klik di sini sebelum scan untuk tambah stok", key="scan_inv")
         if bc_input:
-            match = df[df['Barcode'] == bc_input.strip()]
-            if not match.empty:
-                prod_name = match.iloc[0]['Produk']
+            match_inv = df[df['Barcode'] == bc_input.strip()]
+            if not match_inv.empty:
+                p_name = match_inv.iloc[0]['Produk']
                 st.session_state.df_local.loc[df['Barcode'] == bc_input.strip(), 'Stok'] += 1
-                st.success(f"Berhasil! Stok {prod_name} bertambah menjadi {st.session_state.df_local.loc[df['Barcode'] == bc_input.strip(), 'Stok'].values[0]}")
+                st.success(f"STOK BERHASIL DITAMBAH: {p_name} (+1)")
             else:
-                st.warning("Barcode tidak terdaftar.")
+                st.error("Barcode tidak terdaftar.")
 
-    search = st.text_input("Cari Produk...")
+    search = st.text_input("Cari Produk (Nama/Barcode)...")
     def color_stock(val):
         return 'color: #ff4b4b' if val < 3 else 'color: white'
-    display_df = df[df['Produk'].str.contains(search, case=False)] if search else df
+    
+    mask = df['Produk'].str.contains(search, case=False) | df['Barcode'].str.contains(search, case=False)
+    display_df = df[mask] if search else df
     st.dataframe(display_df.style.map(color_stock, subset=['Stok']), use_container_width=True)
-
-elif menu == "📜 Riwayat Transaksi":
-    st.title("📜 Log Transaksi Harian")
-    if not st.session_state.history:
-        st.info("Belum ada transaksi.")
-    else:
-        st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
 
 elif menu == "🛒 Kasir (POS)":
     st.title("🛒 POS Terminal")
-    
-    # FITUR BARCODE: Scan Penjualan
-    bc_pos = st.text_input("⚡ SCAN BARCODE BARANG (Quick Add)", key="scan_pos")
+
+    # FITUR BARCODE: SCAN PENJUALAN (UTAMA)
+    bc_pos = st.text_input("⚡ SCAN BARCODE BARANG", key="scan_pos_kashir")
+
     if bc_pos:
         match_pos = df[df['Barcode'] == bc_pos.strip()]
         if not match_pos.empty:
@@ -165,11 +167,11 @@ elif menu == "🛒 Kasir (POS)":
             if p_stok > 0:
                 st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
                 st.session_state.df_local.loc[df['Barcode'] == bc_pos.strip(), 'Stok'] -= 1
-                st.toast(f"Ditambahkan: {p_name}")
+                st.toast(f"✅ {p_name} ditambahkan ke keranjang!")
             else:
-                st.error("Stok Habis!")
+                st.error(f"❌ Stok {p_name} Habis!")
         else:
-            st.error("Barcode tidak ditemukan!")
+            st.error("❌ Barcode tidak terdaftar di sistem.")
 
     col_pos, col_cart = st.columns([1.4, 1])
 
@@ -179,7 +181,7 @@ elif menu == "🛒 Kasir (POS)":
         st.divider()
         st.subheader("🛍️ Pilih Produk Manual")
         options = [f"{r['Produk']} | Stok: {int(r['Stok'])}" for _, r in df.iterrows()]
-        pick = st.selectbox("Cari Barang", [""] + options)
+        pick = st.selectbox("Cari Barang Manual", [""] + options)
         
         if pick:
             name = pick.split(" | ")[0]
@@ -235,3 +237,10 @@ elif menu == "🛒 Kasir (POS)":
                 st.session_state.cart = {}
                 st.success(f"Berhasil disimpan pukul {time_str}")
                 st.balloons()
+
+elif menu == "📜 Riwayat Transaksi":
+    st.title("📜 Log Transaksi Harian")
+    if not st.session_state.history:
+        st.info("Belum ada transaksi.")
+    else:
+        st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
