@@ -27,17 +27,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE (Koneksi Baru: branz_tech_db) ---
-URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
-
-# Pastikan menggunakan nama "gsheets"
+# --- 2. DATA ENGINE ---
+# Gunakan nama "gsheets" agar sesuai dengan label standar di Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     """Mengambil data dan membersihkan nama kolom secara otomatis."""
     try:
-        data = conn.read(spreadsheet=URL_SHEET, ttl=0)
-        # --- PEMBERSIH KOLOM OTOMATIS ---
+        # Cukup panggil tanpa URL karena sudah ada di Secrets
+        data = conn.read(ttl=0) 
         data.columns = data.columns.str.strip() 
         
         df_clean = data.dropna(subset=['Produk']).copy()
@@ -50,8 +48,8 @@ def load_data():
 def update_gsheets_stock(cart_items):
     """Mengurangi stok di Google Sheets dengan validasi kolom."""
     try:
-        df_current = conn.read(spreadsheet=URL_SHEET, ttl=0)
-        # --- PEMBERSIH KOLOM OTOMATIS ---
+        # Ambil data terbaru sebelum update
+        df_current = conn.read(ttl=0)
         df_current.columns = df_current.columns.str.strip()
 
         for item, qty_beli in cart_items.items():
@@ -63,8 +61,8 @@ def update_gsheets_stock(cart_items):
                     return False
                 df_current.loc[idx, 'Stok'] = stok_sekarang - qty_beli
         
-        # Kirim data ke Google Sheets menggunakan koneksi branz_tech_db
-        conn.update(spreadsheet=URL_SHEET, data=df_current)
+        # UPDATE: Langsung kirim df_current ke koneksi "gsheets"
+        conn.update(data=df_current) 
         return True
     except Exception as e:
         st.error(f"Gagal Update! Detail: {e}")
