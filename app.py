@@ -1,108 +1,81 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
+from PIL import Image
+from pyzbar.pyzbar import decode
+from fpdf import FPDF
 
-# --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="BRANZ TECH PRO", layout="wide", page_icon="🚀")
+# --- CONFIG ---
+st.set_page_config(page_title="BRANZ TECH PRO", layout="wide")
 
-# --- DATABASE CONNECTION ---
-# Pastikan URL ini sesuai dengan Google Sheets Anda
+# --- DATABASE ---
 url = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
 
 def load_data():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
+        # Menambahkan parameter headers=0 agar baris pertama dianggap judul kolom
         data = conn.read(spreadsheet=url, ttl=0)
         return data.dropna(subset=['Produk'])
-    except:
-        return pd.DataFrame(columns=["Barcode", "Produk", "Stok", "Harga Modal", "Harga Jual", "Exp Date"])
+    except Exception as e:
+        st.error(f"Error Database: {e}")
+        return pd.DataFrame()
 
-def format_rupiah(angka):
-    return f"Rp {angka:,.0f}".replace(",", ".")
+# --- LOGIN ---
+if 'auth' not in st.session_state:
+    st.session_state.auth = False
 
-# --- SISTEM LOGIN ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-
-if not st.session_state.logged_in:
-    st.title("🔒 BRANZ TECH Login")
-    user = st.text_input("Username")
-    pw = st.text_input("Password", type="password")
-    if st.button("Masuk"):
-        if user == "admin" and pw == "branz123":
-            st.session_state.logged_in = True
+if not st.session_state.auth:
+    st.title("🛡️ BRANZ TECH SaaS")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    if st.button("Login"):
+        # Daftar Partner Anda
+        partners = {"admin": "branz123", "aisyah": "aisyah99", "nikmat": "cireng77"}
+        if u in partners and partners[u] == p:
+            st.session_state.auth = True
+            st.session_state.user = u
             st.rerun()
         else:
-            st.error("Username/Password Salah")
+            st.error("Gagal!")
     st.stop()
 
-# --- LOAD DATA ASLI ---
-df = load_data()
+# --- FILTERING DATA ---
+full_df = load_data()
+# Mengambil data HANYA yang Owner_ID-nya sama dengan user yang login
+df = full_df[full_df['Owner_ID'] == st.session_state.user] if not full_df.empty else full_df
 
-# --- SIDEBAR ---
-with st.sidebar:
-    # Menggunakan placeholder jika logo belum di-upload
-    st.image("https://via.placeholder.com/150?text=BRANZ+TECH", width=150)
-    st.title("BRANZ TECH")
-    st.write(f"Tanggal: **{datetime.now().strftime('%d %m %Y')}**")
-    menu = st.radio("Navigasi", ["Dashboard", "Update Stok", "Kasir/Penjualan"])
-    if st.button("Log Out"):
-        st.session_state.logged_in = False
-        st.rerun()
+st.sidebar.title(f"Partner: {st.session_state.user.upper()}")
+menu = st.sidebar.radio("Menu", ["Stok Saya", "Scan Barcode", "Kasir"])
 
-# --- HALAMAN 1: DASHBOARD ---
-if menu == "Dashboard":
-    st.title("📊 Analisis Bisnis Pro")
-    
-    # Metrik Utama
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-        st.metric("Total Produk", len(df))
-    with col_m2:
-        total_stok = df['Stok'].sum() if not df.empty else 0
-        st.metric("Total Stok", f"{int(total_stok)} pcs")
-    with col_m3:
-        aset = (df['Stok'] * df['Harga Jual']).sum() if not df.empty else 0
-        st.metric("Nilai Aset Jual", format_rupiah(aset))
-
-    st.divider()
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📦 Komposisi Stok")
-        if not df.empty:
-            fig = px.pie(df, values='Stok', names='Produk', hole=0.4)
-            st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        st.subheader("📈 Grafik Stok Barang")
-        if not df.empty:
-            fig_bar = px.bar(df, x="Produk", y="Stok", color="Stok")
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-# --- HALAMAN 2: UPDATE STOK ---
-elif menu == "Update Stok":
-    st.title("📥 Manajemen Gudang")
-    st.info("Silakan update data melalui Google Sheets, lalu refresh aplikasi ini.")
-    st.link_button("Buka Google Sheets", url)
-    st.divider()
-    st.write("Data Saat Ini:")
+if menu == "Stok Saya":
+    st.title(f"📦 Inventaris {st.session_state.user}")
     st.dataframe(df, use_container_width=True)
 
-# --- HALAMAN 3: KASIR ---
-else:
-    st.title("💸 Kasir Digital")
+elif menu == "Scan Barcode":
+    st.title("📷 Scanner HP")
+    cam = st.camera_input("Scan Barcode")
+    if cam:
+        data = decode(Image.open(cam))
+        if data:
+            code = data[0].data.decode('utf-8')
+            st.success(f"Barcode: {code}")
+            item = df[df['Barcode'].astype(str) == code]
+            if not item.empty:
+                st.write(item)
+            else:
+                st.warning("Produk tidak ada di database Anda.")
+
+elif menu == "Kasir":
+    st.title("💸 Cetak Struk")
     if not df.empty:
-        pilih = st.selectbox("Pilih Produk", df['Produk'].unique())
-        qty = st.number_input("Jumlah Beli", min_value=1, step=1)
-        
-        harga = df[df['Produk'] == pilih]['Harga Jual'].values[0]
-        total = harga * qty
-        
-        st.subheader(f"Total Bayar: {format_rupiah(total)}")
-        if st.button("Proses & Cetak"):
-            st.success("Transaksi Berhasil (Simulasi)")
-            st.balloons()
-    else:
-        st.warning("Data produk kosong.")
+        prod = st.selectbox("Pilih Produk", df['Produk'].unique())
+        if st.button("Download Struk PDF"):
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=15)
+            pdf.cell(200, 10, txt=f"STRUK BRANZ TECH - {st.session_state.user}", ln=1, align='C')
+            pdf.cell(200, 10, txt=f"Produk: {prod}", ln=2)
+            pdf.output("struk.pdf")
+            with open("struk.pdf", "rb") as f:
+                st.download_button("Klik untuk Simpan Struk", f, file_name="struk.pdf")
