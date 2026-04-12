@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
+from PIL import Image
+from pyzbar.pyzbar import decode
+from fpdf import FPDF
 import datetime
 
 # --- 1. CONFIG & STYLING ---
@@ -10,20 +13,15 @@ st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle at top right, #1e293b, #0f172a); color: #f8fafc; }
     .stButton>button { border-radius: 10px !important; transition: 0.3s; font-weight: 600 !important; }
-    .stMetric { background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.1); }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 2. DATA ENGINE ---
-# URL Spreadsheet Anda
 URL_DB = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit#gid=0"
-
-# Koneksi otomatis membaca dari [connections.gsheets] di Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        # PENTING: Spreadsheet harus disebutkan di sini
         data = conn.read(spreadsheet=URL_DB, ttl=0)
         data.columns = data.columns.str.strip() 
         df_clean = data.dropna(subset=['Produk']).copy()
@@ -33,16 +31,6 @@ def load_data():
     except Exception as e:
         st.error(f"Koneksi Gagal: {e}")
         return pd.DataFrame()
-
-def save_to_cloud(dataframe):
-    try:
-        # PENTING: Spreadsheet harus disebutkan di sini agar tidak error "must be specified"
-        conn.update(spreadsheet=URL_DB, data=dataframe)
-        st.cache_data.clear() 
-        return True
-    except Exception as e:
-        st.error(f"Gagal Update Cloud: {e}")
-        return False
 
 # --- 3. SESSION STATE ---
 if 'auth' not in st.session_state: st.session_state.auth = False
@@ -66,85 +54,99 @@ if not st.session_state.auth:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 5. NAVIGATION ---
+# --- 5. FUNGSI CETAK PDF ---
+def generate_receipt(cart_data, total_price, user):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(190, 10, "BRANZ TECH PRESTIGE", ln=True, align='C')
+    pdf.set_font("Arial", size=10)
+    pdf.cell(190, 10, f"Tanggal: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
+    pdf.cell(190, 5, f"Kasir: {user.upper()}", ln=True, align='C')
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(100, 10, "Produk", 1)
+    pdf.cell(30, 10, "Qty", 1)
+    pdf.cell(60, 10, "Subtotal", 1, ln=True)
+    
+    pdf.set_font("Arial", size=12)
+    for item, q in cart_data.items():
+        price = st.session_state.df_local[st.session_state.df_local['Produk'] == item]['Harga Jual'].values[0]
+        pdf.cell(100, 10, str(item), 1)
+        pdf.cell(30, 10, str(q), 1)
+        pdf.cell(60, 10, f"Rp {price*q:,.0f}", 1, ln=True)
+    
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(190, 10, f"TOTAL: Rp {total_price:,.0f}", ln=True, align='R')
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 6. NAVIGATION & MENU ---
 df = st.session_state.df_local
 
 with st.sidebar:
     st.header(f"👤 {st.session_state.user.upper()}")
-    st.divider()
-    menu = st.radio("Menu Navigasi", ["📊 Dashboard", "📦 Inventaris", "🛒 Kasir (POS)"])
-    st.divider()
-    if st.button("🔄 Sinkron Cloud (Refresh)", use_container_width=True):
+    menu = st.radio("Menu", ["📊 Dashboard", "🛒 Kasir (POS)"])
+    if st.button("🔄 Sync Cloud"):
         st.session_state.df_local = load_data()
         st.rerun()
-    if st.button("Logout", use_container_width=True):
-        st.session_state.clear()
-        st.rerun()
 
-# --- 6. PAGE LOGIC ---
-if menu == "📊 Dashboard":
-    st.title("📈 Business Analytics")
-    if not df.empty:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Asset (Stok)", f"Rp {(df['Stok'] * df['Harga Jual']).sum():,.0f}")
-        c2.metric("Varian Produk", len(df))
-        c3.metric("Item Stok Rendah", len(df[df['Stok'] < 5]))
-        st.subheader("Grafik Persediaan")
-        st.bar_chart(df.set_index('Produk')['Stok'])
+if menu == "🛒 Kasir (POS)":
+    st.title("🛒 Kasir & Barcode Scanner")
+    
+    # Fitur Barcode
+    with st.expander("📸 Buka Scanner Barcode"):
+        img_file = st.camera_input("Scan Barcode Produk")
+        if img_file:
+            img = Image.open(img_file)
+            decoded_objs = decode(img)
+            for obj in decoded_objs:
+                barcode_val = obj.data.decode("utf-8")
+                st.success(f"Terdeteksi: {barcode_val}")
+                # Logika pencarian produk berdasarkan barcode bisa ditambahkan di sini
 
-elif menu == "📦 Inventaris":
-    st.title("📦 Database Produk")
-    search = st.text_input("Cari Nama Produk...")
-    filt_df = df[df['Produk'].str.contains(search, case=False)] if search else df
-    st.dataframe(filt_df, use_container_width=True, hide_index=True)
-
-elif menu == "🛒 Kasir (POS)":
-    st.title("🛒 POS Terminal")
     col_left, col_right = st.columns([1.5, 1])
     
     with col_left:
-        st.subheader("Input Produk")
         prod_options = [f"{r['Produk']} | Sisa: {int(r['Stok'])}" for _, r in df.iterrows()]
         pick = st.selectbox("Pilih Barang", [""] + prod_options)
         
         if pick:
             name_only = pick.split(" | ")[0]
             current_stock = df[df['Produk'] == name_only]['Stok'].values[0]
-            qty = st.number_input("Jumlah Beli", min_value=1, max_value=int(current_stock) if current_stock > 0 else 1, value=1)
+            qty = st.number_input("Jumlah", min_value=1, max_value=int(current_stock) if current_stock > 0 else 1, value=1)
             
-            if st.button("➕ Tambah ke Keranjang", use_container_width=True):
-                if current_stock >= qty:
-                    st.session_state.cart[name_only] = st.session_state.cart.get(name_only, 0) + qty
-                    idx = df[df['Produk'] == name_only].index
-                    st.session_state.df_local.loc[idx, 'Stok'] -= qty
-                    st.rerun()
-                else:
-                    st.error("Stok tidak mencukupi!")
+            if st.button("➕ Tambah Ke Keranjang"):
+                st.session_state.cart[name_only] = st.session_state.cart.get(name_only, 0) + qty
+                st.session_state.df_local.loc[df['Produk'] == name_only, 'Stok'] -= qty
+                st.rerun()
 
     with col_right:
-        st.subheader("📝 Detail Pesanan")
+        st.subheader("📝 Keranjang")
         total_belanja = 0
-        if not st.session_state.cart:
-            st.info("Keranjang kosong.")
-        else:
-            for item, q in list(st.session_state.cart.items()):
-                price = df[df['Produk'] == item]['Harga Jual'].values[0]
-                sub = price * q
-                total_belanja += sub
-                c_item, c_del = st.columns([4, 1])
-                c_item.write(f"**{item}** \n{q} x Rp {price:,.0f} = Rp {sub:,.0f}")
-                if c_del.button("🗑️", key=f"del_{item}"):
-                    idx = df[df['Produk'] == item].index
-                    st.session_state.df_local.loc[idx, 'Stok'] += st.session_state.cart[item]
-                    del st.session_state.cart[item]
-                    st.rerun()
-            
-            st.divider()
-            st.write(f"### TOTAL: Rp {total_belanja:,.0f}")
-            
-            if st.button("💎 SELESAIKAN & SIMPAN CLOUD", use_container_width=True):
-                with st.spinner("Mengupdate Google Sheets..."):
-                    if save_to_cloud(st.session_state.df_local):
-                        st.success("Transaksi Berhasil!")
-                        st.session_state.cart = {}
-                        st.rerun()
+        for item, q in list(st.session_state.cart.items()):
+            price = df[df['Produk'] == item]['Harga Jual'].values[0]
+            total_belanja += (price * q)
+            st.write(f"**{item}** ({q})")
+        
+        st.divider()
+        st.write(f"### TOTAL: Rp {total_belanja:,.0f}")
+        
+        if st.button("✅ SELESAIKAN & SIMPAN CLOUD"):
+            if st.session_state.cart:
+                try:
+                    conn.update(spreadsheet=URL_DB, data=st.session_state.df_local)
+                    st.success("Data Berhasil Disimpan ke Cloud!")
+                    
+                    # Siapkan PDF untuk diunduh
+                    pdf_data = generate_receipt(st.session_state.cart, total_belanja, st.session_state.user)
+                    st.download_button("📥 Download Struk (PDF)", data=pdf_data, file_name=f"Struk_{datetime.datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+                    
+                    st.session_state.cart = {}
+                except Exception as e:
+                    st.error(f"Gagal Simpan: {e}")
+
+elif menu == "📊 Dashboard":
+    st.title("📈 Dashboard")
+    st.metric("Total Varian", len(df))
+    st.bar_chart(df.set_index('Produk')['Stok'])
