@@ -27,26 +27,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE ---
-# Kredensial dibersihkan dari karakter spasi tak terlihat
-service_account_info = {
-    "type": "service_account",
-    "project_id": "branz-tech-pos",
-    "private_key_id": "577a5f3591e532f094844bbdfadff8f11d0c4415",
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQClnYwGprwHmO5m\ncCkAaBZH0tExIwkZ4LIYKgFlSlAAl6A1QcMjomajGcl20OelAbZJ5Aq4foUwxE4O\nYlDAp5BqjjsrWce8BpwC8bFOeJ0/us66dh5pUhIbao1NtWN0F5SUBYXbHb594xtc\njWaEh9aLZNUG3bJufXlQ6m514UTy0KSuUK00pamuehszWqlTs4gg93YzxJ72PS5b\nZWniKgSV27tycja34SpTjBeCIBUuqu4TfPnhsisbYAiJCFpDBcA02bWwlkFR5Ii2\nKxZPrHnE4F9+hrG7UE6Ico3jqEtSkPUnjLy82PPH8SGqmWDBwbqqKcl3ro1NZBzt\njbS/DhtLAgMBAAECggEAGnDHrTwrYs8gqIwZj64OeJMIwN6GEnKUHFWAeYpesWmD\ns1z3aZYA6uMwDd8WTHq0fqGAsKnKW9nLWHKLz+YwoUJp4ebog3VOrQ2nMA8Dk+wg\nGxbGjiwDJgth2dkuspcdKnCjSTM7eV+ru5/7kQca0pBbjkgQt6EioC99SSaY2mcB\nQpQ6Rv2qRcIMzaAF1bk1AtbqAJSLK8eDYhbVzuaW1+5faothOb3xa9bfS6xteLFu\nlvC1IiY1vs+0pdCUEC0OLl7haVaDZiGS+UuZKQVKH+ox0YcRNmZNGkpJ+js4H9Y0\n2Xji5YYSh6ectOVbD9LPCvOB1qYn8zYTIg8j3/HY8QKBgQDXm/y/C0JUZ658PHj4\nwAiq+IPUvIxZ4UPijxk7L3YRVScqNrab2uKylVN9K0HTZ/dyRJ+ukbOy9kM82VIW\nnmZEbbDcNaS7SF62+i3g2Q2ZdFBGGrxjoXSdTAqE+bsGJIduqg9D4cdpbXCuASWE\nXjrvrUINO5WNT3mk/PY9i+dCyQKBgQDEo/5SvakVI0LcNrI8lYzl6obwbwKLyL3p\nCKca3JS8gchgkfXLIk4tg9XTW+QHE5RON3RNw0AeCCgjHorvlHKBDW2Cfn43XAbV\nBCD3/JeCD+muFWZ1/tu6nexF+JoyC44MFrwGjz7aMlK9AIebYAfo0btO3NjbWwNL\nVTfsRezDcwKBgQCkJh8jt8e1CQa/kS6se09eEzwS78WO/EC5sSaNd9HU2lap/ePC\n/r9PJP7eMdu4vtOWDIbh2g3Mt05zeiTUEZ5chIJ89N5Is41gk1HweG+xH+upo9s/\nowFsbCMqIBLyV0dAyno6vR8btfVulHLitvb52JeMCYwPfK1pHim+q8/SeQKBgFHA\n2Kivv49RNKf3eYzkpEqmgemOTaGuGP68oTTyxkfFMXis1mLY5WXY7NpN1vT2N+94\n8Lqv1YVm4MERHrRSpHRxD7l0O6dqdFC1wbs4Ygkp8n502T9vcQ0aQTQqEnmCAlGW\nVh/oCDqRN4LqqHZ5q3ApWlWETgiMw0bbrD9oJvJvAoGAKhMLuw6ScwftLn/O7FlT\n6NwVPBzIczVUSvbswIw6W2D0AEzwwJ/Fysm8AGmQZpuGsAJegJ5huRKdVGyvGmRM\nQyeBgQevXX519iNbAuBLHcxWFCWzdHZ2fgg6lMd28e72Qc7feudJKW45dd4i8fhj\nx6Pigg5Tg1JuYn45+zmKkwM=\n-----END PRIVATE KEY-----\n",
-    "client_email": "gsheets-connector@branz-tech-pos.iam.gserviceaccount.com"
-}
-
-# Perbaikan Inisialisasi Koneksi
-conn = st.connection("gsheets", type=GSheetsConnection, service_account=service_account_info)
-
+# --- 2. DATA ENGINE (Koneksi Baru: branz_tech_db) ---
 URL_SHEET = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
+conn = st.connection("branz_tech_db", type=GSheetsConnection)
 
 def load_data():
+    """Mengambil data dan membersihkan nama kolom secara otomatis."""
     try:
         data = conn.read(spreadsheet=URL_SHEET, ttl=0)
-        # Bersihkan nama kolom dari spasi atau karakter aneh
-        data.columns = [str(c).strip() for c in data.columns]
+        # --- PEMBERSIH KOLOM OTOMATIS ---
+        data.columns = data.columns.str.strip() 
+        
         df_clean = data.dropna(subset=['Produk']).copy()
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0)
         return df_clean
@@ -55,16 +46,22 @@ def load_data():
         return pd.DataFrame()
 
 def update_gsheets_stock(cart_items):
+    """Mengurangi stok di Google Sheets dengan validasi kolom."""
     try:
         df_current = conn.read(spreadsheet=URL_SHEET, ttl=0)
-        df_current.columns = [str(c).strip() for c in df_current.columns]
+        # --- PEMBERSIH KOLOM OTOMATIS ---
+        df_current.columns = df_current.columns.str.strip()
 
         for item, qty_beli in cart_items.items():
             idx = df_current[df_current['Produk'] == item].index
             if not idx.empty:
                 stok_sekarang = df_current.loc[idx, 'Stok'].values[0]
+                if stok_sekarang < qty_beli:
+                    st.error(f"Stok {item} tidak cukup! (Tersisa: {stok_sekarang})")
+                    return False
                 df_current.loc[idx, 'Stok'] = stok_sekarang - qty_beli
         
+        # Kirim data ke Google Sheets menggunakan koneksi branz_tech_db
         conn.update(spreadsheet=URL_SHEET, data=df_current)
         return True
     except Exception as e:
@@ -139,9 +136,7 @@ if menu == "📊 Dashboard":
     st.title("📈 Analitik Bisnis")
     if not df.empty:
         c1, c2, c3 = st.columns(3)
-        # Menghitung valuasi dengan kolom yang dibersihkan
-        total_val = (df['Stok'] * df['Harga Jual']).sum()
-        c1.metric("Valuasi Stok", f"Rp {total_val:,.0f}")
+        c1.metric("Valuasi Stok", f"Rp {(df['Stok'] * df['Harga Jual']).sum():,.0f}")
         c2.metric("Varian Produk", len(df))
         c3.metric("Stok Rendah (<5)", len(df[df['Stok'] < 5]))
         st.bar_chart(df.set_index('Produk')['Stok'])
@@ -164,7 +159,7 @@ elif menu == "🛒 Kasir (POS)":
             if pick_raw:
                 pick_name = pick_raw.split(" (Sisa:")[0]
                 stok_avail = df[df['Produk'] == pick_name]['Stok'].values[0]
-                amount = st.number_input("Jumlah Beli", min_value=1, max_value=int(stok_avail) if stok_avail > 0 else 1, value=1)
+                amount = st.number_input("Jumlah Beli", min_value=1, max_value=int(stok_avail), value=1)
                 if st.button("➕ TAMBAH", use_container_width=True):
                     st.session_state.cart[pick_name] = st.session_state.cart.get(pick_name, 0) + amount
                     st.rerun()
@@ -210,8 +205,7 @@ elif menu == "📷 Scan Barcode":
         decoded = decode(Image.open(img_file))
         if decoded:
             b_code = decoded[0].data.decode('utf-8')
-            # Perbaikan pencarian barcode (menyamakan tipe data)
-            match = df[df['Barcode'].astype(str).str.contains(str(b_code))]
+            match = df[df['Barcode'].astype(str) == b_code]
             if not match.empty:
                 name = match['Produk'].values[0]
                 st.info(f"Terdeteksi: {name}")
