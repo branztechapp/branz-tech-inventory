@@ -4,7 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 from PIL import Image
 from pyzbar.pyzbar import decode
 from fpdf import FPDF
-from datetime import datetime
+import datetime # Import modul utama agar tidak bentrok
 import io
 
 # --- 1. CONFIG & ELITE STYLING ---
@@ -40,7 +40,7 @@ def load_data():
         return conn.read(spreadsheet=url, ttl=0).dropna(subset=['Produk'])
     except: return pd.DataFrame()
 
-# --- 3. RECEIPT GENERATOR (FIXED) ---
+# --- 3. RECEIPT GENERATOR (FIXED NAMEERROR) ---
 def generate_receipt(cart_items, total, operator, df_data):
     pdf = FPDF(format=(80, 150))
     pdf.add_page()
@@ -49,8 +49,12 @@ def generate_receipt(cart_items, total, operator, df_data):
     pdf.set_font("Courier", "", 9)
     pdf.cell(0, 5, "Elite Digital Solutions", ln=True, align="C")
     pdf.cell(0, 5, "="*25, ln=True, align="C")
+    
+    # Perbaikan NameError datetime disini
+    now_str = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
+    
     pdf.set_font("Courier", "", 8)
-    pdf.cell(0, 5, f"Tgl: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
+    pdf.cell(0, 5, f"Tgl: {now_str}", ln=True)
     pdf.cell(0, 5, f"Kasir: {operator.upper()}", ln=True)
     pdf.cell(0, 5, "-"*31, ln=True)
     
@@ -65,11 +69,11 @@ def generate_receipt(cart_items, total, operator, df_data):
     
     pdf.cell(0, 5, "-"*31, ln=True)
     pdf.set_font("Courier", "B", 10)
-    pdf.cell(0, 10, f"TOTAL AKHIR: Rp {total:,.0f}", ln=True, align="R")
+    pdf.cell(0, 10, f"TOTAL: Rp {total:,.0f}", ln=True, align="R")
     pdf.ln(5)
     pdf.set_font("Courier", "I", 8)
-    pdf.cell(0, 5, "Terima kasih atas kunjungan Anda", ln=True, align="C")
-    return pdf.output()
+    pdf.cell(0, 5, "Terima Kasih", ln=True, align="C")
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. AUTH & SESSION ---
 if 'auth' not in st.session_state: st.session_state.auth = False
@@ -98,7 +102,6 @@ with st.sidebar:
     st.markdown(f"### 🛡️ {st.session_state.role}")
     st.caption(f"Operator: {st.session_state.user.upper()}")
     st.divider()
-    # KEMBALIKAN MENU SCAN BARCODE DISINI
     menu = st.radio("MENU", ["🛒 Kasir Digital", "📷 Scan Barcode", "📊 Dashboard", "📦 Inventory"])
     if st.button("🔒 LOGOUT"):
         st.session_state.auth = False
@@ -107,6 +110,7 @@ with st.sidebar:
 if menu == "🛒 Kasir Digital":
     st.title("🛒 POS Terminal")
     col_in, col_cart = st.columns([1.5, 1])
+    
     with col_in:
         st.markdown('<div class="terminal-card">', unsafe_allow_html=True)
         if not df.empty:
@@ -116,7 +120,7 @@ if menu == "🛒 Kasir Digital":
             if st.button("➕ TAMBAH KE KERANJANG", use_container_width=True):
                 if sel_prod:
                     st.session_state.cart[sel_prod] = st.session_state.cart.get(sel_prod, 0) + qty
-                    st.rerun()
+                    st.toast(f"{sel_prod} ditambahkan!")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_cart:
@@ -128,60 +132,59 @@ if menu == "🛒 Kasir Digital":
         else:
             for item, q in list(st.session_state.cart.items()):
                 price = df[df['Produk'] == item]['Harga Jual'].values[0]
-                total += (price * q)
+                sub = price * q
+                total += sub
                 c1, c2 = st.columns([4, 1])
-                c1.write(f"**{item}** x{q}")
+                c1.write(f"**{item}** \n{q} x {price:,.0f}")
                 if c2.button("❌", key=f"del_{item}"):
                     del st.session_state.cart[item]
                     st.rerun()
+            
             st.divider()
             st.markdown(f"### TOTAL: Rp {total:,.0f}")
-            if st.button("💎 SELESAIKAN & GENERATE STRUK", use_container_width=True):
+            
+            if st.button("💎 SELESAIKAN & CETAK", use_container_width=True):
                 receipt_bytes = generate_receipt(st.session_state.cart, total, st.session_state.user, df)
                 st.session_state.last_receipt = receipt_bytes
-                st.session_state.cart = {}
-                st.balloons()
+                st.session_state.cart = {} # Reset keranjang
+                st.success("Transaksi Berhasil!")
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
         
         if st.session_state.last_receipt:
-            st.download_button(label="📥 DOWNLOAD STRUK (PDF)", data=st.session_state.last_receipt, 
-                             file_name=f"Struk_{datetime.now().strftime('%d%m%y_%H%M')}.pdf", 
-                             mime="application/pdf", use_container_width=True)
-            if st.button("Transaksi Baru"):
-                st.session_state.last_receipt = None
-                st.rerun()
+            st.download_button(
+                label="📥 DOWNLOAD STRUK (PDF)", 
+                data=st.session_state.last_receipt, 
+                file_name=f"Struk_{datetime.datetime.now().strftime('%H%M%S')}.pdf", 
+                mime="application/pdf", 
+                use_container_width=True
+            )
 
 elif menu == "📷 Scan Barcode":
     st.title("📷 Scanner Barcode")
-    st.info("Arahkan barcode produk ke kamera.")
     cam = st.camera_input("Scanner")
     if cam:
-        barcodes = decode(Image.open(cam))
-        if barcodes:
-            code = barcodes[0].data.decode('utf-8')
-            st.success(f"Barcode Terdeteksi: {code}")
-            # Logika pencarian produk berdasarkan barcode (jika ada kolom Barcode di GSheets)
+        decoded_objs = decode(Image.open(cam))
+        if decoded_objs:
+            code = decoded_objs[0].data.decode('utf-8')
+            st.success(f"Barcode: {code}")
             if 'Barcode' in df.columns:
                 match = df[df['Barcode'].astype(str) == code]
                 if not match.empty:
                     p_name = match['Produk'].values[0]
-                    st.write(f"Produk Ditemukan: **{p_name}**")
-                    if st.button(f"Tambah {p_name} ke Keranjang"):
+                    st.write(f"Produk: **{p_name}**")
+                    if st.button(f"Tambah {p_name}"):
                         st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
-                        st.toast("Ditambahkan!")
-                else:
-                    st.warning("Barcode tidak terdaftar di inventory.")
+                        st.toast("Berhasil!")
         else:
-            st.warning("Barcode tidak terbaca. Pastikan cahaya cukup.")
+            st.warning("Barcode tidak terdeteksi.")
 
 elif menu == "📊 Dashboard":
     st.title("Ringkasan Bisnis")
-    if not df.empty:
-        m1, m2 = st.columns(2)
-        m1.metric("Omzet Potensial", f"Rp {(df['Stok']*df['Harga Jual']).sum():,.0f}")
-        m2.metric("Total Produk", len(df))
-        st.bar_chart(df.set_index('Produk')['Stok'])
+    m1, m2 = st.columns(2)
+    m1.metric("Omzet Potensial", f"Rp {(df['Stok']*df['Harga Jual']).sum():,.0f}")
+    m2.metric("Total Produk", len(df))
+    st.bar_chart(df.set_index('Produk')['Stok'])
 
 elif menu == "📦 Inventory":
     st.title("Stok Barang")
