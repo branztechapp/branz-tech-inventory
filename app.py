@@ -56,9 +56,11 @@ if not st.session_state.auth:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 5. FUNGSI CETAK STRUK ALA MALL (PREMIUM) ---
+# --- 5. FUNGSI CETAK STRUK ALA MALL (WAKTU REAL-TIME) ---
 def generate_receipt(cart_data, subtotal, discount, tax, total, customer, user, df_ref):
-    # Setup PDF dengan ukuran struk thermal 80mm
+    # Waktu Real-time saat file di-generate
+    now = datetime.datetime.now().strftime('%d/%m/%y %H:%M:%S')
+    
     pdf = FPDF(format=(80, 150)) 
     pdf.add_page()
     pdf.set_margins(5, 5, 5)
@@ -70,8 +72,8 @@ def generate_receipt(cart_data, subtotal, discount, tax, total, customer, user, 
     pdf.cell(70, 4, "Jombang, Jawa Timur", ln=True, align='C')
     pdf.cell(70, 4, "-"*35, ln=True, align='C')
     
-    # Info Transaksi
-    pdf.cell(70, 4, f"Tgl: {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}", ln=True)
+    # Info Transaksi dengan Waktu Real-time
+    pdf.cell(70, 4, f"Tgl: {now}", ln=True)
     pdf.cell(70, 4, f"Kasir: {user.upper()}", ln=True)
     pdf.cell(70, 4, f"Cust : {customer if customer else 'Pelanggan Umum'}", ln=True)
     pdf.cell(70, 4, "="*35, ln=True, align='C')
@@ -80,9 +82,7 @@ def generate_receipt(cart_data, subtotal, discount, tax, total, customer, user, 
     pdf.set_font("Courier", 'B', 8)
     for item, q in cart_data.items():
         price = df_ref[df_ref['Produk'] == item]['Harga Jual'].values[0]
-        # Baris Nama Barang
         pdf.cell(70, 4, f"{item[:25]}", ln=True)
-        # Baris Harga dan Subtotal
         pdf.set_font("Courier", size=8)
         pdf.cell(35, 4, f"  {q} x {price:,.0f}", 0)
         pdf.cell(35, 4, f"{price*q:,.0f}", 0, 1, 'R')
@@ -92,11 +92,9 @@ def generate_receipt(cart_data, subtotal, discount, tax, total, customer, user, 
     # Ringkasan Pembayaran
     pdf.cell(40, 5, "Subtotal", 0)
     pdf.cell(30, 5, f"{subtotal:,.0f}", 0, 1, 'R')
-    
     if discount > 0:
         pdf.cell(40, 5, "Diskon", 0)
         pdf.cell(30, 5, f"-{discount:,.0f}", 0, 1, 'R')
-        
     if tax > 0:
         pdf.cell(40, 5, "PPN 11%", 0)
         pdf.cell(30, 5, f"{tax:,.0f}", 0, 1, 'R')
@@ -145,11 +143,8 @@ if menu == "📊 Dashboard":
 elif menu == "📦 Inventaris Stok":
     st.title("📦 Database Inventaris")
     search = st.text_input("Cari Produk...")
-    
-    # Perbaikan: Menggunakan map() untuk menghindari AttributeError di versi baru
     def color_stock(val):
         return 'color: #ff4b4b' if val < 3 else 'color: white'
-
     display_df = df[df['Produk'].str.contains(search, case=False)] if search else df
     st.dataframe(display_df.style.map(color_stock, subset=['Stok']), use_container_width=True)
 
@@ -158,6 +153,7 @@ elif menu == "📜 Riwayat Transaksi":
     if not st.session_state.history:
         st.info("Belum ada transaksi.")
     else:
+        # Menampilkan tabel riwayat dengan waktu yang akurat
         st.table(pd.DataFrame(st.session_state.history))
 
 elif menu == "🛒 Kasir (POS)":
@@ -210,14 +206,18 @@ elif menu == "🛒 Kasir (POS)":
             st.write(f"### Total: Rp {total_akhir:,.0f}")
             
             if st.button("🏁 SELESAIKAN TRANSAKSI", use_container_width=True):
-                # Simpan Log
+                # PERBAIKAN: Mengambil waktu detik ini juga saat tombol ditekan
+                time_now = datetime.datetime.now().strftime("%H:%M:%S")
+                
+                # Simpan Log ke History
                 st.session_state.history.append({
-                    "Jam": datetime.datetime.now().strftime("%H:%M"),
+                    "Waktu": time_now,
                     "Customer": cust_name if cust_name else "Umum",
-                    "Total": total_akhir
+                    "Item": ", ".join([f"{k} ({v}x)" for k, v in st.session_state.cart.items()]),
+                    "Total": f"Rp {total_akhir:,.0f}"
                 })
                 
-                # Render Struk Mall
+                # Render Struk PDF dengan waktu real-time
                 pdf_output = generate_receipt(st.session_state.cart, subtotal, disc, tax_val, total_akhir, cust_name, st.session_state.user, df)
                 
                 st.download_button(
@@ -229,5 +229,5 @@ elif menu == "🛒 Kasir (POS)":
                 )
                 
                 st.session_state.cart = {}
-                st.success("Transaksi Berhasil!")
+                st.success(f"Transaksi Berhasil pada {time_now}!")
                 st.balloons()
