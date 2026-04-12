@@ -40,50 +40,35 @@ def load_data():
         return conn.read(spreadsheet=url, ttl=0).dropna(subset=['Produk'])
     except: return pd.DataFrame()
 
-# --- 3. FIX: RECEIPT GENERATOR (PDF) ---
+# --- 3. RECEIPT GENERATOR (FIXED) ---
 def generate_receipt(cart_items, total, operator, df_data):
-    # Menggunakan format kustom untuk struk thermal (80mm x variabel)
     pdf = FPDF(format=(80, 150))
     pdf.add_page()
-    
-    # Header Toko
     pdf.set_font("Courier", "B", 14)
     pdf.cell(0, 8, "BRANZ TECH", ln=True, align="C")
     pdf.set_font("Courier", "", 9)
     pdf.cell(0, 5, "Elite Digital Solutions", ln=True, align="C")
     pdf.cell(0, 5, "="*25, ln=True, align="C")
-    
-    # Info Transaksi
     pdf.set_font("Courier", "", 8)
     pdf.cell(0, 5, f"Tgl: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
     pdf.cell(0, 5, f"Kasir: {operator.upper()}", ln=True)
     pdf.cell(0, 5, "-"*31, ln=True)
     
-    # Detail Barang
-    pdf.set_font("Courier", "B", 8)
     for item, qty in cart_items.items():
-        # Cari harga dari dataframe
         price_row = df_data[df_data['Produk'] == item]['Harga Jual'].values
         price = price_row[0] if len(price_row) > 0 else 0
         subtotal = qty * price
-        
+        pdf.set_font("Courier", "B", 8)
         pdf.cell(0, 5, f"{item[:25]}", ln=True)
         pdf.set_font("Courier", "", 8)
         pdf.cell(0, 5, f"  {qty} x {price:,.0f} = Rp {subtotal:,.0f}", ln=True)
-        pdf.set_font("Courier", "B", 8)
     
-    # Footer & Total
     pdf.cell(0, 5, "-"*31, ln=True)
     pdf.set_font("Courier", "B", 10)
     pdf.cell(0, 10, f"TOTAL AKHIR: Rp {total:,.0f}", ln=True, align="R")
-    
     pdf.ln(5)
     pdf.set_font("Courier", "I", 8)
-    pdf.cell(0, 5, "Barang yang sudah dibeli", ln=True, align="C")
-    pdf.cell(0, 5, "tidak dapat ditukar/dikembalikan.", ln=True, align="C")
-    pdf.cell(0, 10, "*** TERIMA KASIH ***", ln=True, align="C")
-    
-    # Output sebagai bytes
+    pdf.cell(0, 5, "Terima kasih atas kunjungan Anda", ln=True, align="C")
     return pdf.output()
 
 # --- 4. AUTH & SESSION ---
@@ -103,18 +88,18 @@ if not st.session_state.auth:
             if u in users and users[u][0] == p:
                 st.session_state.auth, st.session_state.user, st.session_state.role = True, u, users[u][1]
                 st.rerun()
-            else: st.error("Akses Ditolak.")
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 5. APP INTERFACE ---
+# --- 5. MAIN APP ---
 df = load_data()
 
 with st.sidebar:
     st.markdown(f"### 🛡️ {st.session_state.role}")
     st.caption(f"Operator: {st.session_state.user.upper()}")
     st.divider()
-    menu = st.radio("MENU", ["🛒 Kasir Digital", "📊 Dashboard", "📦 Inventory"])
+    # KEMBALIKAN MENU SCAN BARCODE DISINI
+    menu = st.radio("MENU", ["🛒 Kasir Digital", "📷 Scan Barcode", "📊 Dashboard", "📦 Inventory"])
     if st.button("🔒 LOGOUT"):
         st.session_state.auth = False
         st.rerun()
@@ -122,7 +107,6 @@ with st.sidebar:
 if menu == "🛒 Kasir Digital":
     st.title("🛒 POS Terminal")
     col_in, col_cart = st.columns([1.5, 1])
-    
     with col_in:
         st.markdown('<div class="terminal-card">', unsafe_allow_html=True)
         if not df.empty:
@@ -150,32 +134,46 @@ if menu == "🛒 Kasir Digital":
                 if c2.button("❌", key=f"del_{item}"):
                     del st.session_state.cart[item]
                     st.rerun()
-            
             st.divider()
             st.markdown(f"### TOTAL: Rp {total:,.0f}")
-            
             if st.button("💎 SELESAIKAN & GENERATE STRUK", use_container_width=True):
-                # Generate PDF
                 receipt_bytes = generate_receipt(st.session_state.cart, total, st.session_state.user, df)
                 st.session_state.last_receipt = receipt_bytes
-                st.session_state.cart = {} # Kosongkan keranjang
+                st.session_state.cart = {}
                 st.balloons()
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Munculkan tombol download jika receipt sudah ada
         if st.session_state.last_receipt:
-            st.write("---")
-            st.download_button(
-                label="📥 DOWNLOAD STRUK (PDF)",
-                data=st.session_state.last_receipt,
-                file_name=f"Struk_{datetime.now().strftime('%d%m%y_%H%M')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+            st.download_button(label="📥 DOWNLOAD STRUK (PDF)", data=st.session_state.last_receipt, 
+                             file_name=f"Struk_{datetime.now().strftime('%d%m%y_%H%M')}.pdf", 
+                             mime="application/pdf", use_container_width=True)
             if st.button("Transaksi Baru"):
                 st.session_state.last_receipt = None
                 st.rerun()
+
+elif menu == "📷 Scan Barcode":
+    st.title("📷 Scanner Barcode")
+    st.info("Arahkan barcode produk ke kamera.")
+    cam = st.camera_input("Scanner")
+    if cam:
+        barcodes = decode(Image.open(cam))
+        if barcodes:
+            code = barcodes[0].data.decode('utf-8')
+            st.success(f"Barcode Terdeteksi: {code}")
+            # Logika pencarian produk berdasarkan barcode (jika ada kolom Barcode di GSheets)
+            if 'Barcode' in df.columns:
+                match = df[df['Barcode'].astype(str) == code]
+                if not match.empty:
+                    p_name = match['Produk'].values[0]
+                    st.write(f"Produk Ditemukan: **{p_name}**")
+                    if st.button(f"Tambah {p_name} ke Keranjang"):
+                        st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
+                        st.toast("Ditambahkan!")
+                else:
+                    st.warning("Barcode tidak terdaftar di inventory.")
+        else:
+            st.warning("Barcode tidak terbaca. Pastikan cahaya cukup.")
 
 elif menu == "📊 Dashboard":
     st.title("Ringkasan Bisnis")
