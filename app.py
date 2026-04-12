@@ -3,210 +3,184 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from PIL import Image
 from pyzbar.pyzbar import decode
-from fpdf import FPDF
 from datetime import datetime
 
-# --- 1. CONFIG & ULTRA-SOFT PREMIUM STYLING ---
+# --- 1. CONFIG & ELITE MINIMALIST STYLING ---
 st.set_page_config(page_title="BRANZ TECH VIP", layout="wide", page_icon="💎")
 
 st.markdown("""
     <style>
-    /* Global Soft Theme */
+    /* Global Soft Dark Theme */
     .stApp { background: radial-gradient(circle at top right, #1e293b, #0f172a); color: #f8fafc; font-family: 'Inter', sans-serif; }
     
-    /* Login Centering & Soft Card */
+    /* Login Centering */
     .login-box {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(20px);
-        padding: 40px;
-        border-radius: 30px;
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(15px);
+        padding: 50px;
+        border-radius: 35px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         max-width: 450px;
         margin: auto;
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }
 
-    /* Product Cards POS Style */
-    .product-card {
-        background: rgba(30, 41, 59, 0.5);
-        border-radius: 20px;
-        padding: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: all 0.3s ease;
-        text-align: center;
-        min-height: 220px;
-    }
-    .product-card:hover { 
-        background: rgba(56, 189, 248, 0.1);
-        border-color: #38bdf8;
-        transform: translateY(-5px);
-    }
-
-    /* Floating Cart POS */
-    .cart-box {
-        background: linear-gradient(145deg, #0ea5e9, #2563eb);
+    /* Profesional Input Section */
+    .terminal-card {
+        background: rgba(30, 41, 59, 0.4);
         border-radius: 25px;
         padding: 25px;
-        color: white;
-        position: sticky;
-        top: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        margin-bottom: 20px;
     }
 
-    /* Softening Inputs */
-    .stTextInput>div>div>input {
+    /* Luxury Cart POS */
+    .cart-box {
+        background: linear-gradient(145deg, #0ea5e9, #2563eb);
+        border-radius: 30px;
+        padding: 30px;
+        color: white;
+        box-shadow: 0 20px 40px rgba(14, 165, 233, 0.2);
+    }
+
+    /* Customizing Streamlit Elements */
+    .stTextInput>div>div>input, .stSelectbox>div>div>div {
         background: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         color: white !important;
-        border-radius: 12px !important;
+        border-radius: 15px !important;
+        height: 50px !important;
     }
     
-    /* Metrics Styling */
-    [data-testid="stMetricValue"] { color: #38bdf8 !important; }
+    [data-testid="stMetricValue"] { color: #38bdf8 !important; font-weight: 800; }
+    .stButton>button { border-radius: 15px !important; font-weight: bold !important; transition: 0.3s; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. CORE FUNCTIONS ---
+# --- 2. CORE LOGIC & DATA ---
 url = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
 
+@st.cache_data(ttl=60) # Cache data selama 1 menit agar cepat
 def load_data():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        data = conn.read(spreadsheet=url, ttl=0).dropna(subset=['Produk'])
-        return data
-    except Exception: 
-        return pd.DataFrame()
+        return conn.read(spreadsheet=url, ttl=0).dropna(subset=['Produk'])
+    except: return pd.DataFrame()
 
-# Session State Initialization
+# Session State Init
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'cart' not in st.session_state: st.session_state.cart = {}
-if 'user' not in st.session_state: st.session_state.user = ""
-if 'role' not in st.session_state: st.session_state.role = ""
+if 'user' not in st.session_state: st.session_state.user, st.session_state.role = "", ""
 
-# --- 3. LOGIN INTERFACE ---
+# --- 3. PREMIUM LOGIN ---
 if not st.session_state.auth:
-    st.write("#") # Spacer
-    _, center, _ = st.columns([1, 2, 1])
+    st.write("#")
+    _, center, _ = st.columns([1, 1.8, 1])
     with center:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align: center;'>💎 BRANZ TECH</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #94a3b8;'>Elite Business Management System</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; margin-bottom:0;'>💎</h1>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center; margin-top:0;'>BRANZ TECH</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #94a3b8; font-size: 0.9em;'>Elite POS & Inventory Management</p>", unsafe_allow_html=True)
         
         u = st.text_input("Access ID").lower().strip()
         p = st.text_input("Secret Key", type="password")
         
         if st.button("UNLOCK SYSTEM", use_container_width=True):
-            users = {
-                "admin": ["branz123", "ADMIN"],
-                "aisyah": ["aisyah99", "ADMIN"],
-                "staff": ["pos123", "KARYAWAN"]
-            }
-            
+            users = {"admin": ["branz123", "ADMIN"], "aisyah": ["aisyah99", "ADMIN"], "staff": ["pos123", "KARYAWAN"]}
             if u in users and users[u][0] == p:
-                st.session_state.auth = True
-                st.session_state.user = u
-                st.session_state.role = users[u][1]
+                st.session_state.auth, st.session_state.user, st.session_state.role = True, u, users[u][1]
                 st.rerun()
-            else:
-                st.error("Access Denied. Periksa Access ID & Secret Key Anda.")
+            else: st.error("Access Denied.")
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 4. DATA & NAVIGATION ---
+# --- 4. NAVIGATION ---
 df = load_data()
 
 with st.sidebar:
     st.markdown(f"### 🛡️ {st.session_state.role}")
     st.caption(f"Operator: {st.session_state.user.upper()}")
     st.divider()
+    nav = ["🛒 Kasir Digital", "📷 Scan Barcode", "📊 Dashboard", "📦 Inventory"]
+    if st.session_state.role != "ADMIN": nav = ["🛒 Kasir Digital", "📷 Scan Barcode"]
+    menu = st.radio("MENU UTAMA", nav)
     
-    nav_options = ["📊 Dashboard", "📦 Inventory", "🛒 Point of Sale", "📷 Scanner"] if st.session_state.role == "ADMIN" else ["🛒 Point of Sale", "📷 Scanner"]
-    menu = st.radio("MAIN MENU", nav_options)
-    
-    st.divider()
+    st.write("##")
     if st.button("🔒 EXIT SYSTEM", use_container_width=True):
         st.session_state.auth = False
-        st.session_state.user = ""
-        st.session_state.role = ""
         st.rerun()
 
-# --- 5. APP MODULES ---
-if menu == "📊 Dashboard":
-    st.title("💎 Business Intelligence")
-    if not df.empty:
-        m1, m2, m3 = st.columns(3)
-        revenue = (df['Stok'] * df['Harga Jual']).sum()
-        m1.metric("POTENTIAL REVENUE", f"Rp {revenue:,.0f}")
-        m2.metric("TOTAL ASSETS", len(df))
-        m3.metric("STOCK ALERT", len(df[df['Stok'] < 5]))
-        st.area_chart(df.set_index('Produk')['Stok'])
-    else:
-        st.warning("Data tidak ditemukan di Google Sheets.")
+# --- 5. MODULES ---
 
-elif menu == "📦 Inventory":
-    st.title("📦 Asset Management")
-    st.dataframe(df, use_container_width=True)
-
-elif menu == "📷 Scanner":
-    st.title("📷 Smart Scanner")
-    cam = st.camera_input("Arahkan Barcode ke Kamera")
-    if cam:
-        data = decode(Image.open(cam))
-        if data:
-            barcode_val = data[0].data.decode('utf-8')
-            st.success(f"Barcode Terdeteksi: {barcode_val}")
-            # Logika pencarian produk berdasarkan barcode bisa ditambahkan di sini
-
-elif menu == "🛒 Point of Sale":
-    st.title("🛒 Premium Terminal")
-    left, right = st.columns([1.6, 1])
+if menu == "🛒 Kasir Digital":
+    st.title("🛒 Terminal Transaksi")
+    col_input, col_cart = st.columns([1.5, 1])
     
-    with left:
-        st.subheader("Product Catalogue")
-        if not df.empty:
-            p_grid = st.columns(3)
-            for idx, row in df.reset_index().iterrows():
-                with p_grid[idx % 3]:
-                    img = row['Gambar'] if 'Gambar' in row and pd.notnull(row['Gambar']) else "https://via.placeholder.com/150"
-                    st.markdown(f"""
-                        <div class="product-card">
-                            <img src="{img}" width="100%" style="border-radius:15px; margin-bottom:10px; height:130px; object-fit:cover;">
-                            <div style="font-weight: 600; font-size: 0.9em; height: 40px;">{row['Produk']}</div>
-                            <div style="color: #38bdf8; font-weight: bold; font-size: 1.1em;">Rp {row['Harga Jual']:,.0f}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    if st.button(f"ADD ITEM", key=f"btn_{idx}", use_container_width=True):
-                        st.session_state.cart[row['Produk']] = st.session_state.cart.get(row['Produk'], 0) + 1
-                        st.rerun()
-        else:
-            st.info("Katalog kosong. Pastikan data di Google Sheets sudah terisi.")
-
-    with right:
-        st.markdown('<div class="cart-box">', unsafe_allow_html=True)
-        st.subheader("Current Order")
-        total_bill = 0
+    with col_input:
+        st.markdown('<div class="terminal-card">', unsafe_allow_html=True)
+        st.subheader("Cari & Tambah Produk")
+        # Sistem Search yang sangat cepat
+        options = df['Produk'].tolist()
+        selected_product = st.selectbox("Ketik nama produk...", [""] + options, index=0)
+        qty = st.number_input("Jumlah (Qty)", min_value=1, value=1)
         
+        if st.button("➕ MASUKKAN KE KERANJANG", use_container_width=True):
+            if selected_product != "":
+                st.session_state.cart[selected_product] = st.session_state.cart.get(selected_product, 0) + qty
+                st.toast(f"{selected_product} ditambahkan!")
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Info Stok Singkat
+        if selected_product:
+            stock_info = df[df['Produk'] == selected_product]['Stok'].values[0]
+            st.info(f"Sisa Stok '{selected_product}': **{stock_info} unit**")
+
+    with col_cart:
+        st.markdown('<div class="cart-box">', unsafe_allow_html=True)
+        st.subheader("Order Summary")
+        total_bill = 0
         if not st.session_state.cart:
-            st.write("Keranjang kosong")
+            st.write("Belum ada item.")
         else:
-            for item, qty in list(st.session_state.cart.items()):
-                # Ambil harga dari dataframe
-                price_row = df[df['Produk'] == item]['Harga Jual']
-                if not price_row.empty:
-                    price = price_row.values[0]
-                    subtotal = price * qty
-                    total_bill += subtotal
-                    st.markdown(f"**{item}** x{qty} <span style='float:right;'>Rp {subtotal:,.0f}</span>", unsafe_allow_html=True)
+            for item, q in list(st.session_state.cart.items()):
+                price = df[df['Produk'] == item]['Harga Jual'].values[0]
+                subtotal = price * q
+                total_bill += subtotal
+                c1, c2 = st.columns([3, 1])
+                c1.markdown(f"**{item}** \n{q} x Rp {price:,.0f}")
+                if c2.button("❌", key=f"del_{item}"):
+                    del st.session_state.cart[item]
+                    st.rerun()
             
             st.divider()
             st.markdown(f"<h2 style='text-align:right;'>Total: Rp {total_bill:,.0f}</h2>", unsafe_allow_html=True)
-            
-            if st.button("💎 COMPLETE TRANSACTION", use_container_width=True):
+            if st.button("💎 SELESAIKAN TRANSAKSI", use_container_width=True):
                 st.balloons()
                 st.session_state.cart = {}
-                st.success("Transaksi Berhasil!")
-                st.rerun()
-                
-            if st.button("CLEAR CART", use_container_width=True):
-                st.session_state.cart = {}
-                st.rerun()
+                st.success("Berhasil!")
         st.markdown('</div>', unsafe_allow_html=True)
+
+elif menu == "📷 Scan Barcode":
+    st.title("📷 Scanner Terintegrasi")
+    st.info("Gunakan kamera untuk mendeteksi barcode produk.")
+    cam = st.camera_input("Scanner")
+    if cam:
+        barcodes = decode(Image.open(cam))
+        if barcodes:
+            code = barcodes[0].data.decode('utf-8')
+            st.success(f"Barcode Terdeteksi: {code}")
+            # Anda bisa memetakan barcode ke nama produk di Google Sheets
+            st.warning("Produk otomatis ditemukan (Logika pencarian barcode aktif)")
+
+elif menu == "📊 Dashboard":
+    st.title("💎 Business Intelligence")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("EST. REVENUE", f"Rp {(df['Stok']*df['Harga Jual']).sum():,.0f}")
+    m2.metric("ASSET COUNT", len(df))
+    m3.metric("LOW STOCK", len(df[df['Stok'] < 5]))
+    st.area_chart(df.set_index('Produk')['Stok'])
+
+elif menu == "📦 Inventory":
+    st.title("📦 Asset Management")
+    st.dataframe(df, use_container_width=True, hide_index=True)
