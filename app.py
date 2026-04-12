@@ -20,7 +20,7 @@ def apply_custom_style():
 
 apply_custom_style()
 
-# --- 2. DATA ENGINE (Pembersihan Data Super Ketat) ---
+# --- 2. DATA ENGINE ---
 URL_DB = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit#gid=0"
 
 @st.cache_data(ttl=60)
@@ -28,18 +28,11 @@ def load_data():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         data = conn.read(spreadsheet=URL_DB, ttl=0)
-        
-        # Bersihkan nama kolom
         data.columns = data.columns.str.strip()
-        
-        # Hapus baris kosong
         df_clean = data.dropna(subset=['Produk']).copy()
-        
-        # Konversi Stok & Harga ke Angka
         df_clean['Stok'] = pd.to_numeric(df_clean['Stok'], errors='coerce').fillna(0).astype(int)
         df_clean['Harga Jual'] = pd.to_numeric(df_clean['Harga Jual'], errors='coerce').fillna(0)
         
-        # FIX BARCODE: Paksa jadi string dan hapus .0 (karakter desimal)
         if 'Barcode' in df_clean.columns:
             df_clean['Barcode'] = (df_clean['Barcode']
                                    .astype(str)
@@ -48,16 +41,15 @@ def load_data():
                                    .replace(['nan', 'None', ''], 'KOSONG'))
         else:
             df_clean['Barcode'] = 'KOSONG'
-            
         return df_clean
     except Exception as e:
         st.error(f"Gagal memuat data: {e}")
         return pd.DataFrame(columns=['Produk', 'Stok', 'Harga Jual', 'Barcode'])
 
-# --- 3. SESSION STATE ---
+# --- 3. SESSION STATE (Penyimpanan Riwayat) ---
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'cart' not in st.session_state: st.session_state.cart = {}
-if 'history' not in st.session_state: st.session_state.history = []
+if 'history' not in st.session_state: st.session_state.history = [] # Tetap tersimpan selama tab tidak di-refresh
 if 'df_local' not in st.session_state: st.session_state.df_local = load_data()
 
 # --- 4. LOGIN SYSTEM ---
@@ -86,37 +78,39 @@ def generate_receipt(cart_data, total, customer, user, df_ref):
         pdf.cell(60, 4, f"Kasir: {user.upper()}", ln=True)
         pdf.cell(60, 4, f"Cust : {customer if customer else 'Umum'}", ln=True)
         pdf.cell(60, 4, "-"*30, ln=True)
-        
         for item, q in cart_data.items():
             price = df_ref[df_ref['Produk'] == item]['Harga Jual'].values[0]
             pdf.cell(60, 4, f"{item[:18]} x{q}", ln=True)
             pdf.cell(60, 4, f"   @ {price:,.0f} = {price*q:,.0f}", ln=True)
-            
         pdf.cell(60, 4, "-"*30, ln=True)
         pdf.set_font("Courier", 'B', 10)
         pdf.cell(60, 8, f"TOTAL: Rp {total:,.0f}", ln=True, align='R')
         return pdf.output(dest='S').encode('latin-1')
-    except Exception: return None
+    except: return None
 
-# --- 6. NAVIGATION ---
+# --- 6. NAVIGATION & SIDEBAR ---
 with st.sidebar:
     st.title("💎 BRANZ TECH")
     st.write(f"User: **{st.session_state.user.upper()}**")
-    menu = st.radio("Menu", ["🛒 POS Kasir", "📦 Inventaris", "📜 Riwayat"])
+    menu = st.radio("Menu", ["🛒 POS Kasir", "📦 Inventaris", "📜 Log Transaksi"])
+    
+    st.divider()
     if st.button("🔄 Sync Cloud"):
         st.cache_data.clear()
         st.session_state.df_local = load_data()
+        st.rerun()
+    
+    if st.button("⚠️ Reset Log Hari Ini"):
+        st.session_state.history = []
         st.rerun()
 
 # --- 7. MAIN LOGIC ---
 
 if menu == "🛒 POS Kasir":
     st.title("🛒 POS Terminal")
-    
-    # Scanner
     scan_val = st.text_input("⚡ SCAN BARCODE", key="scanner").strip()
+    
     if scan_val:
-        # Cari di df_local agar stok selalu update secara realtime
         match = st.session_state.df_local[st.session_state.df_local['Barcode'] == scan_val]
         if not match.empty:
             p_name = match.iloc[0]['Produk']
@@ -124,13 +118,10 @@ if menu == "🛒 POS Kasir":
                 st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
                 st.session_state.df_local.loc[match.index[0], 'Stok'] -= 1
                 st.toast(f"✅ {p_name} ditambahkan!")
-            else:
-                st.error("Stok Habis!")
-        else:
-            st.warning("Produk tidak ditemukan!")
+            else: st.error("Stok Habis!")
+        else: st.warning("Produk tidak ditemukan!")
 
     col_cart, col_summary = st.columns([1.5, 1])
-
     with col_cart:
         cust = st.text_input("Nama Pelanggan / WA", placeholder="08xxxx")
         st.subheader("🛒 Keranjang")
@@ -150,50 +141,53 @@ if menu == "🛒 POS Kasir":
         st.subheader("💰 Pembayaran")
         subtotal = sum(st.session_state.df_local[st.session_state.df_local['Produk'] == it]['Harga Jual'].values[0] * q 
                        for it, q in st.session_state.cart.items())
-        
         disc = st.number_input("Diskon (Rp)", min_value=0, step=500)
         total_akhir = max(0, subtotal - disc)
-        
         st.metric("Total", f"Rp {total_akhir:,.0f}")
         
         if st.button("🏁 SELESAIKAN & CETAK", use_container_width=True) and st.session_state.cart:
-            # Simpan History
+            now = datetime.datetime.now()
             entry = {
-                "Waktu": datetime.datetime.now().strftime("%H:%M:%S"),
+                "Tanggal": now.strftime("%Y-%m-%d"),
+                "Waktu": now.strftime("%H:%M:%S"),
                 "Pelanggan": cust if cust else "Umum",
                 "Item": ", ".join([f"{k}({v})" for k,v in st.session_state.cart.items()]),
                 "Total": total_akhir
             }
             st.session_state.history.insert(0, entry)
-            
-            # Buat Struk
             receipt_pdf = generate_receipt(st.session_state.cart, total_akhir, cust, st.session_state.user, st.session_state.df_local)
-            
             if receipt_pdf:
-                st.download_button("📥 Unduh Struk", data=receipt_pdf, file_name=f"INV-{datetime.datetime.now().day}.pdf")
-            
-            st.session_state.cart = {} # Kosongkan keranjang
+                st.download_button("📥 Unduh Struk", data=receipt_pdf, file_name=f"INV-{now.strftime('%H%M%S')}.pdf")
+            st.session_state.cart = {}
             st.success("Transaksi Berhasil!")
             st.balloons()
 
 elif menu == "📦 Inventaris":
     st.title("📦 Database Inventaris")
     search = st.text_input("Cari Nama/Barcode...").lower()
-    
-    # Filter pencarian yang aman dari error tipe data
     mask = (st.session_state.df_local['Produk'].astype(str).str.lower().str.contains(search) | 
             st.session_state.df_local['Barcode'].astype(str).str.lower().str.contains(search))
-    
-    display_df = st.session_state.df_local[mask]
-    
-    # Gunakan .map() bukan .applymap()
-    st.dataframe(display_df.style.map(
+    st.dataframe(st.session_state.df_local[mask].style.map(
         lambda x: 'color: #ff4b4b; font-weight: bold' if x < 5 else '', subset=['Stok']
     ), use_container_width=True)
 
-elif menu == "📜 Riwayat":
-    st.title("📜 Riwayat Transaksi")
+elif menu == "📜 Log Transaksi":
+    st.title("📜 Log Transaksi Harian")
     if st.session_state.history:
-        st.table(pd.DataFrame(st.session_state.history))
+        log_df = pd.DataFrame(st.session_state.history)
+        st.dataframe(log_df, use_container_width=True)
+        
+        # Fitur Simpan Excel
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            log_df.to_excel(writer, index=False, sheet_name='Laporan')
+        
+        st.download_button(
+            label="📥 Simpan ke Excel (.xlsx)",
+            data=buffer.getvalue(),
+            file_name=f"Laporan_BranzTech_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
     else:
-        st.info("Bel'um ada transaksi hari ini.")
+        st.info("Belum ada riwayat transaksi untuk hari ini.")
