@@ -38,6 +38,7 @@ def load_data():
 
 # --- 3. SESSION STATE ---
 if 'auth' not in st.session_state: st.session_state.auth = False
+if 'role' not in st.session_state: st.session_state.role = None
 if 'cart' not in st.session_state: st.session_state.cart = {}
 if 'history' not in st.session_state: st.session_state.history = []
 if 'df_local' not in st.session_state: st.session_state.df_local = load_data()
@@ -64,7 +65,7 @@ def remove_from_cart(p_name):
             del st.session_state.cart[p_name]
 
 def generate_receipt_pdf(cart_data, total_akhir, customer_name, cashier_name, df_ref):
-    pdf = FPDF(format=(80, 150)) # Ukuran kertas struk thermal 80mm
+    pdf = FPDF(format=(80, 150))
     pdf.add_page()
     pdf.set_font("Courier", 'B', 12)
     pdf.cell(60, 8, "BRANZ TECH", ln=True, align='C')
@@ -83,49 +84,64 @@ def generate_receipt_pdf(cart_data, total_akhir, customer_name, cashier_name, df
     pdf.set_font("Courier", 'B', 10)
     pdf.cell(60, 8, f"TOTAL: Rp {total_akhir:,.0f}", ln=True, align='R')
     pdf.set_font("Courier", size=7)
-    pdf.cell(60, 10, "Terima Kasih Atas Kunjungan Anda", ln=True, align='C')
+    pdf.cell(60, 10, "Terima Kasih - BRANZ TECH", ln=True, align='C')
     
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. LOGIN ---
+# --- 5. LOGIN SYSTEM (AISYAH & STAFF) ---
 if not st.session_state.auth:
     _, col, _ = st.columns([1, 1, 1])
     with col:
-        st.title("💎 LOGIN")
-        u = st.text_input("User").lower()
-        p = st.text_input("Pass", type="password")
-        if st.button("LOGIN", use_container_width=True):
+        st.title("💎 AISYAH LOGIN")
+        u = st.text_input("Username").lower()
+        p = st.text_input("Password", type="password")
+        if st.button("MASUK SISTEM", use_container_width=True, type="primary"):
             if u == "admin" and p == "branz123":
-                st.session_state.auth, st.session_state.user = True, u
+                st.session_state.auth, st.session_state.user, st.session_state.role = True, u, "admin"
                 st.rerun()
-            else: st.error("Akses Ditolak")
+            elif u == "staff" and p == "aisyah99":
+                st.session_state.auth, st.session_state.user, st.session_state.role = True, u, "staff"
+                st.rerun()
+            else: 
+                st.error("Username atau Password Salah!")
     st.stop()
 
 # --- 6. MAIN UI ---
 with st.sidebar:
     st.header(f"👤 {st.session_state.user.upper()}")
-    menu = st.radio("Menu Utama", ["🛒 Kasir", "📦 Stok Barang", "📜 Log Transaksi"])
+    st.caption(f"Role: {st.session_state.role.capitalize()}")
+    
+    # Menu Filter berdasarkan Role
+    if st.session_state.role == "admin":
+        menu_options = ["🛒 Kasir", "📦 Stok Barang", "📜 Log Transaksi"]
+    else:
+        menu_options = ["🛒 Kasir", "📦 Stok Barang"] # Staff tidak bisa lihat Log detail
+        
+    menu = st.radio("Navigasi", menu_options)
     st.divider()
+    
     if st.button("🔄 Sync Cloud Data"):
         st.cache_data.clear()
         st.session_state.df_local = load_data()
         st.rerun()
+        
+    if st.button("🚪 Logout"):
+        st.session_state.auth = False
+        st.rerun()
 
+# --- KASIR ---
 if menu == "🛒 Kasir":
     st.title("🛒 POS TERMINAL")
     df = st.session_state.df_local
 
-    # Barcode Input (Otomatis deteksi enter)
-    barcode_val = st.text_input("⚡ SCAN BARCODE DI SINI", key="scan_input").strip()
+    barcode_val = st.text_input("⚡ SCAN BARCODE", key="scan_input").strip()
     if barcode_val:
         match = df[df['Barcode'] == barcode_val]
         if not match.empty:
             if add_to_cart(match.iloc[0]['Produk']):
-                st.toast(f"✅ {match.iloc[0]['Produk']} masuk keranjang")
-            else:
-                st.error("Stok Habis!")
-        else:
-            st.warning("Barcode tidak ditemukan!")
+                st.toast(f"✅ {match.iloc[0]['Produk']} Ditambahkan")
+            else: st.error("Stok Habis!")
+        else: st.warning("Barcode Tidak Dikenal")
         st.rerun()
 
     c1, c2 = st.columns([1.5, 1])
@@ -134,37 +150,30 @@ if menu == "🛒 Kasir":
         cust = st.text_input("Nama Pelanggan", "Umum")
         st.divider()
         options = [f"{r['Produk']} | Stok: {r['Stok']}" for _, r in df.iterrows()]
-        pick = st.selectbox("Cari Produk Manual", [""] + options)
+        pick = st.selectbox("Pilih Produk", [""] + options)
         if pick:
             p_sel = pick.split(" | ")[0]
-            if st.button("➕ Tambahkan Produk", use_container_width=True):
-                if add_to_cart(p_sel):
-                    st.rerun()
-                else:
-                    st.error("Stok Habis!")
+            if st.button("➕ Tambah Ke Keranjang", use_container_width=True):
+                if add_to_cart(p_sel): st.rerun()
 
     with c2:
-        st.subheader("📝 Keranjang")
+        st.subheader("📝 Bill")
         subtotal = 0
         if not st.session_state.cart:
-            st.info("Belum ada produk di keranjang.")
+            st.info("Keranjang Kosong")
         else:
             for item, qty in list(st.session_state.cart.items()):
                 harga = df[df['Produk'] == item]['Harga Jual'].values[0]
                 subtotal += (harga * qty)
-                
                 with st.container():
                     col_n, col_p, col_m, col_d = st.columns([2, 0.6, 0.6, 0.6])
                     col_n.write(f"**{item}**\n{qty} x {harga:,.0f}")
-                    
-                    if col_p.button("➕", key=f"p_{item}"):
+                    if col_p.button("➕", key=f"p_{item}"): 
                         add_to_cart(item)
                         st.rerun()
-                    
-                    if col_m.button("➖", key=f"m_{item}"):
+                    if col_m.button("➖", key=f"m_{item}"): 
                         remove_from_cart(item)
                         st.rerun()
-                    
                     if col_d.button("🗑️", key=f"d_{item}"):
                         idx = df[df['Produk'] == item].index[0]
                         st.session_state.df_local.at[idx, 'Stok'] += qty
@@ -172,43 +181,40 @@ if menu == "🛒 Kasir":
                         st.rerun()
                 st.divider()
 
-            total = st.number_input("Total Akhir (Setelah Potongan)", value=float(subtotal))
-            st.metric("Total Harus Dibayar", f"Rp {total:,.0f}")
+            total = st.number_input("Total Bayar", value=float(subtotal))
             
-            if st.button("🏁 SELESAI & SIMPAN", use_container_width=True, type="primary"):
-                # Simpan data struk ke PDF sebelum reset
+            if st.button("🏁 CETAK & SIMPAN", use_container_width=True, type="primary"):
                 pdf_bytes = generate_receipt_pdf(st.session_state.cart, total, cust, st.session_state.user, df)
                 st.session_state.receipt_ready = pdf_bytes
                 
-                # Simpan log
                 st.session_state.history.insert(0, {
                     "Waktu": datetime.datetime.now().strftime("%H:%M:%S"),
+                    "User": st.session_state.user,
                     "Pelanggan": cust,
                     "Total": total
                 })
-                
-                # Reset Keranjang
                 st.session_state.cart = {}
-                st.success("Transaksi Berhasil Disimpan!")
+                st.success("Tersimpan!")
                 st.rerun()
 
-            # Tombol Download Struk Muncul Setelah Transaksi Selesai
             if st.session_state.receipt_ready:
                 st.download_button(
-                    label="📥 DOWNLOAD STRUK TERAKHIR",
+                    label="📥 DOWNLOAD STRUK PDF",
                     data=st.session_state.receipt_ready,
-                    file_name=f"Struk-{datetime.datetime.now().strftime('%H%M%S')}.pdf",
+                    file_name=f"Struk-BRANZ-{datetime.datetime.now().strftime('%H%M%S')}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
 
+# --- STOK ---
 elif menu == "📦 Stok Barang":
     st.title("📦 Inventaris Produk")
     st.dataframe(st.session_state.df_local, use_container_width=True, hide_index=True)
 
+# --- LOG (ADMIN ONLY) ---
 elif menu == "📜 Log Transaksi":
-    st.title("📜 Riwayat Transaksi Hari Ini")
+    st.title("📜 Riwayat Penjualan")
     if st.session_state.history:
         st.table(pd.DataFrame(st.session_state.history))
     else:
-        st.info("Belum ada transaksi terekam.")
+        st.info("Belum ada riwayat.")
