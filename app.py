@@ -15,6 +15,7 @@ def apply_custom_style():
         .stButton>button { border-radius: 10px !important; transition: 0.3s; font-weight: 600 !important; }
         .stMetric { background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.1); }
         [data-testid="stMetricValue"] { color: #60a5fa !important; }
+        div[data-baseweb="input"] { border: 1px solid #3b82f6 !important; }
         </style>
         """, unsafe_allow_html=True)
 
@@ -46,10 +47,10 @@ def load_data():
         st.error(f"Gagal memuat data: {e}")
         return pd.DataFrame(columns=['Produk', 'Stok', 'Harga Jual', 'Barcode'])
 
-# --- 3. SESSION STATE (Penyimpanan Riwayat) ---
+# --- 3. SESSION STATE ---
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'cart' not in st.session_state: st.session_state.cart = {}
-if 'history' not in st.session_state: st.session_state.history = [] # Tetap tersimpan selama tab tidak di-refresh
+if 'history' not in st.session_state: st.session_state.history = []
 if 'df_local' not in st.session_state: st.session_state.df_local = load_data()
 
 # --- 4. LOGIN SYSTEM ---
@@ -88,7 +89,7 @@ def generate_receipt(cart_data, total, customer, user, df_ref):
         return pdf.output(dest='S').encode('latin-1')
     except: return None
 
-# --- 6. NAVIGATION & SIDEBAR ---
+# --- 6. NAVIGATION ---
 with st.sidebar:
     st.title("💎 BRANZ TECH")
     st.write(f"User: **{st.session_state.user.upper()}**")
@@ -100,7 +101,7 @@ with st.sidebar:
         st.session_state.df_local = load_data()
         st.rerun()
     
-    if st.button("⚠️ Reset Log Hari Ini"):
+    if st.button("⚠️ Reset Log Harian"):
         st.session_state.history = []
         st.rerun()
 
@@ -108,42 +109,73 @@ with st.sidebar:
 
 if menu == "🛒 POS Kasir":
     st.title("🛒 POS Terminal")
-    scan_val = st.text_input("⚡ SCAN BARCODE", key="scanner").strip()
+    df = st.session_state.df_local
     
+    # 1. Barcode Scanner
+    scan_val = st.text_input("⚡ SCAN BARCODE", key="scanner").strip()
     if scan_val:
-        match = st.session_state.df_local[st.session_state.df_local['Barcode'] == scan_val]
+        match = df[df['Barcode'] == scan_val]
         if not match.empty:
             p_name = match.iloc[0]['Produk']
-            if st.session_state.df_local.loc[match.index[0], 'Stok'] > 0:
+            if df.loc[match.index[0], 'Stok'] > 0:
                 st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
                 st.session_state.df_local.loc[match.index[0], 'Stok'] -= 1
                 st.toast(f"✅ {p_name} ditambahkan!")
             else: st.error("Stok Habis!")
-        else: st.warning("Produk tidak ditemukan!")
+        else: st.warning("Barcode tidak terdaftar!")
 
-    col_cart, col_summary = st.columns([1.5, 1])
-    with col_cart:
+    col_l, col_r = st.columns([1.5, 1])
+    
+    with col_l:
         cust = st.text_input("Nama Pelanggan / WA", placeholder="08xxxx")
-        st.subheader("🛒 Keranjang")
+        
+        # 2. Fitur Tambah Manual (Pencarian Dropdown)
+        st.divider()
+        st.subheader("🔍 Cari Produk Manual")
+        options = [f"{r['Produk']} | Stok: {r['Stok']}" for _, r in df.iterrows()]
+        pick = st.selectbox("Pilih Produk", [""] + options)
+        if pick:
+            p_selected = pick.split(" | ")[0]
+            q_add = st.number_input("Jumlah", min_value=1, value=1)
+            if st.button("➕ Tambahkan ke Keranjang"):
+                current_stok = df[df['Produk'] == p_selected]['Stok'].values[0]
+                if current_stok >= q_add:
+                    st.session_state.cart[p_selected] = st.session_state.cart.get(p_selected, 0) + q_add
+                    st.session_state.df_local.loc[df['Produk'] == p_selected, 'Stok'] -= q_add
+                    st.rerun()
+                else:
+                    st.error("Stok tidak mencukupi!")
+
+    with col_r:
+        st.subheader("📝 Detail Keranjang")
+        subtotal = 0
         if not st.session_state.cart:
-            st.info("Scan barang untuk memulai")
+            st.info("Keranjang Kosong")
         else:
             for item, qty in list(st.session_state.cart.items()):
-                c1, c2, c3 = st.columns([3, 1, 1])
-                c1.write(f"**{item}**")
-                c2.write(f"x{qty}")
-                if c3.button("🗑️", key=f"del_{item}"):
-                    st.session_state.df_local.loc[st.session_state.df_local['Produk'] == item, 'Stok'] += qty
+                price = df[df['Produk'] == item]['Harga Jual'].values[0]
+                subtotal += (price * qty)
+                
+                c_name, c_qty, c_del = st.columns([2, 1.5, 0.5])
+                c_name.write(f"**{item}**")
+                
+                # 3. Fitur Update Qty Langsung di Keranjang
+                new_qty = c_qty.number_input("Qty", min_value=1, value=qty, key=f"q_{item}", label_visibility="collapsed")
+                if new_qty != qty:
+                    diff = new_qty - qty
+                    st.session_state.df_local.loc[df['Produk'] == item, 'Stok'] -= diff
+                    st.session_state.cart[item] = new_qty
+                    st.rerun()
+                
+                if c_del.button("🗑️", key=f"del_{item}"):
+                    st.session_state.df_local.loc[df['Produk'] == item, 'Stok'] += qty
                     del st.session_state.cart[item]
                     st.rerun()
 
-    with col_summary:
-        st.subheader("💰 Pembayaran")
-        subtotal = sum(st.session_state.df_local[st.session_state.df_local['Produk'] == it]['Harga Jual'].values[0] * q 
-                       for it, q in st.session_state.cart.items())
+        st.divider()
         disc = st.number_input("Diskon (Rp)", min_value=0, step=500)
         total_akhir = max(0, subtotal - disc)
-        st.metric("Total", f"Rp {total_akhir:,.0f}")
+        st.metric("Total Bayar", f"Rp {total_akhir:,.0f}")
         
         if st.button("🏁 SELESAIKAN & CETAK", use_container_width=True) and st.session_state.cart:
             now = datetime.datetime.now()
@@ -151,15 +183,15 @@ if menu == "🛒 POS Kasir":
                 "Tanggal": now.strftime("%Y-%m-%d"),
                 "Waktu": now.strftime("%H:%M:%S"),
                 "Pelanggan": cust if cust else "Umum",
-                "Item": ", ".join([f"{k}({v})" for k,v in st.session_state.cart.items()]),
+                "Item": str(st.session_state.cart),
                 "Total": total_akhir
             }
             st.session_state.history.insert(0, entry)
-            receipt_pdf = generate_receipt(st.session_state.cart, total_akhir, cust, st.session_state.user, st.session_state.df_local)
+            receipt_pdf = generate_receipt(st.session_state.cart, total_akhir, cust, st.session_state.user, df)
             if receipt_pdf:
                 st.download_button("📥 Unduh Struk", data=receipt_pdf, file_name=f"INV-{now.strftime('%H%M%S')}.pdf")
             st.session_state.cart = {}
-            st.success("Transaksi Berhasil!")
+            st.success("Tersimpan!")
             st.balloons()
 
 elif menu == "📦 Inventaris":
@@ -176,18 +208,15 @@ elif menu == "📜 Log Transaksi":
     if st.session_state.history:
         log_df = pd.DataFrame(st.session_state.history)
         st.dataframe(log_df, use_container_width=True)
-        
-        # Fitur Simpan Excel
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             log_df.to_excel(writer, index=False, sheet_name='Laporan')
-        
         st.download_button(
             label="📥 Simpan ke Excel (.xlsx)",
             data=buffer.getvalue(),
-            file_name=f"Laporan_BranzTech_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+            file_name=f"Laporan_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
     else:
-        st.info("Belum ada riwayat transaksi untuk hari ini.")
+        st.info("Belum ada riwayat transaksi.")
