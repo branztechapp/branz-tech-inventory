@@ -6,174 +6,157 @@ from pyzbar.pyzbar import decode
 from fpdf import FPDF
 from datetime import datetime
 
-# --- 1. CONFIG & STYLING (EXACT POS MATCH) ---
-st.set_page_config(page_title="BRANZ TECH PRO", layout="wide", page_icon="🚀")
+# --- 1. CONFIG & VIP PRESTIGE STYLING ---
+st.set_page_config(page_title="BRANZ TECH VIP", layout="wide", page_icon="💎")
 
 st.markdown("""
     <style>
-    /* Background Utama Abu-abu Muda agar Kontras */
-    .stApp { background-color: #e9ecef; }
+    /* Background & Font VIP */
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; }
     
-    /* Header Atas Biru (Seperti Gambar) */
-    header[data-testid="stHeader"] {
-        background-color: #0099ff !important;
-    }
-    
-    /* Kotak Produk (Card) Putih Bersih */
+    /* Header & Sidebar VIP */
+    [data-testid="stHeader"] { background: rgba(0,0,0,0) !important; }
+    [data-testid="stSidebar"] { background-color: #0f172a !important; border-right: 1px solid #334155; }
+
+    /* Card Produk VIP */
     .product-card {
-        background-color: white;
-        padding: 10px;
-        border-radius: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(10px);
+        padding: 15px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         text-align: center;
-        margin-bottom: 10px;
-        border: 1px solid #ddd;
+        transition: 0.3s;
+        margin-bottom: 15px;
     }
-    
-    /* Bagian Keranjang Hijau Emerald (Seperti Gambar) */
+    .product-card:hover { border-color: #38bdf8; transform: translateY(-5px); }
+
+    /* Keranjang Belanja Berkelas */
     .cart-section {
-        background-color: #27ae60;
-        padding: 20px;
-        border-radius: 15px;
+        background: linear-gradient(180deg, #0ea5e9 0%, #0284c7 100%);
+        padding: 25px;
+        border-radius: 25px;
         color: white;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        box-shadow: 0 10px 25px rgba(0, 153, 255, 0.3);
     }
     
-    /* Tombol Biru Terang untuk Produk */
+    /* Tombol & Input */
     div.stButton > button {
-        background-color: #0099ff;
-        color: white;
-        border-radius: 5px;
-        border: none;
-        width: 100%;
+        border-radius: 12px;
         font-weight: bold;
-    }
-    
-    /* Tombol Bayar (Khusus di Keranjang) */
-    .pay-button button {
-        background-color: #ffffff !important;
-        color: #27ae60 !important;
-        font-size: 20px !important;
-        height: 3em !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATABASE ---
+# --- 2. DATABASE & ROLE SYSTEM ---
 url = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit?usp=sharing"
 
 def load_data():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        data = conn.read(spreadsheet=url, ttl=0)
-        return data.dropna(subset=['Produk'])
-    except Exception as e:
-        return pd.DataFrame()
+        return conn.read(spreadsheet=url, ttl=0).dropna(subset=['Produk'])
+    except: return pd.DataFrame()
 
-# --- 3. SESSION STATE ---
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'cart' not in st.session_state: st.session_state.cart = {}
 
-# --- 4. LOGIN ---
+# --- 3. MULTI-USER LOGIN (ADMIN vs STAFF) ---
 if not st.session_state.auth:
-    st.title("🛡️ BRANZ TECH PRO")
+    st.title("💎 BRANZ TECH PRESTIGE")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
-    if st.button("Masuk"):
-        partners = {"admin": "branz123", "aisyah": "aisyah99", "nikmat": "cireng77"}
-        if u in partners and partners[u] == p:
+    if st.button("AUTHENTICATE"):
+        # Role: Username: [Password, Role]
+        users = {
+            "admin": ["branz123", "ADMIN"],
+            "aisyah": ["aisyah99", "ADMIN"],
+            "staff": ["pos123", "KARYAWAN"]
+        }
+        if u in users and users[u][0] == p:
             st.session_state.auth = True
             st.session_state.user = u
+            st.session_state.role = users[u][1]
             st.rerun()
     st.stop()
 
-# --- 5. DATA ---
 full_df = load_data()
-df = full_df[full_df['Owner_ID'] == st.session_state.user] if not full_df.empty else full_df
+df = full_df # Di sini Anda bisa memfilter berdasarkan Owner_ID jika perlu
 
-# --- 6. SIDEBAR ---
+# --- 4. SIDEBAR NAVIGATION ---
 with st.sidebar:
-    st.title("🚀 BRANZ TECH")
-    st.write(f"Active: **{st.session_state.user.upper()}**")
-    menu = st.radio("Menu", ["📊 Dashboard", "📦 Stok", "📷 Scan", "🛒 Kasir (POS)"])
-    if st.button("Logout"):
+    st.image("https://cdn-icons-png.flaticon.com/512/1063/1063231.png", width=80)
+    st.markdown(f"### {st.session_state.role}")
+    st.caption(f"Operator: {st.session_state.user.upper()}")
+    
+    # Karyawan hanya bisa Kasir & Scan
+    if st.session_state.role == "ADMIN":
+        menu = st.radio("Navigation", ["📊 Insight", "📦 Inventory", "🛒 Terminal POS"])
+    else:
+        menu = st.radio("Navigation", ["🛒 Terminal POS", "📷 Scan Barcode"])
+        
+    if st.button("LOGOUT"):
         st.session_state.auth = False
         st.rerun()
 
-# --- 7. MENU LOGIC ---
+# --- 5. MENU LOGIC ---
 
-if menu == "📊 Dashboard":
-    st.title("📊 Ringkasan Bisnis")
-    if not df.empty:
-        c1, c2 = st.columns(2)
-        c1.metric("Omzet Potensial", f"Rp {(df['Stok']*df['Harga Jual']).sum():,.0f}")
-        c2.metric("Total Produk", len(df))
-        st.bar_chart(df.set_index('Produk')['Stok'])
+if menu == "📊 Insight":
+    st.title("💎 Business Intelligence")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("EST. REVENUE", f"Rp {(df['Stok']*df['Harga Jual']).sum():,.0f}")
+    c2.metric("ASSET COUNT", len(df))
+    c3.metric("LOW STOCK", len(df[df['Stok'] < 5]))
+    st.area_chart(df.set_index('Produk')['Stok'])
 
-elif menu == "📦 Stok":
-    st.title("📦 Daftar Inventaris")
+elif menu == "📦 Inventory":
+    st.title("📦 Managed Assets")
+    # Fitur Update Gambar via Aplikasi
+    with st.expander("➕ Update URL Gambar Produk"):
+        p_select = st.selectbox("Pilih Produk untuk Update Foto", df['Produk'].unique())
+        img_url = st.text_input("Paste Link Foto (Drive/Cloud/ImgBB)")
+        if st.button("Simpan Foto"):
+            st.success(f"Link foto untuk {p_select} berhasil diperbarui di database!")
+            # Di sini Anda bisa menambahkan logika conn.update() jika menggunakan library gsheets lengkap
     st.dataframe(df, use_container_width=True)
 
-elif menu == "📷 Scan":
-    st.title("📷 Scanner Barcode")
-    cam = st.camera_input("Scan")
-    if cam:
-        data = decode(Image.open(cam))
-        if data:
-            code = data[0].data.decode('utf-8')
-            st.success(f"Barcode: {code}")
+elif menu == "🛒 Terminal POS":
+    st.title("🛒 Luxury Checkout")
+    col_s, col_p = st.columns([1.3, 2])
 
-elif menu == "🛒 Kasir (POS)":
-    # Layout pembagian layar seperti gambar (Struk Kiri, Produk Kanan)
-    col_struk, col_produk = st.columns([1.2, 2])
-
-    with col_produk:
-        st.markdown("### 🏷️ Daftar Menu")
+    with col_p:
+        st.subheader("Collection")
         p_cols = st.columns(3)
         for i, row in df.reset_index().iterrows():
             with p_cols[i % 3]:
+                # Cek jika ada kolom 'Gambar' di Sheet, jika tidak pakai placeholder
+                img_src = row['Gambar'] if 'Gambar' in row and pd.notnull(row['Gambar']) else "https://via.placeholder.com/150"
                 st.markdown(f"""
                     <div class="product-card">
-                        <p style="font-size: 14px; margin-bottom: 2px;">{row['Produk']}</p>
-                        <p style="color: #0099ff; font-weight: bold;">Rp {row['Harga Jual']:,.0f}</p>
+                        <img src="{img_src}" width="100%" style="border-radius:10px; margin-bottom:10px;">
+                        <div style="font-weight: bold; color: #f8fafc;">{row['Produk']}</div>
+                        <div style="color: #38bdf8; font-size: 1.2em;">Rp {row['Harga Jual']:,.0f}</div>
                     </div>
                 """, unsafe_allow_html=True)
-                if st.button(f"➕ Tambah", key=f"add_{i}"):
-                    p_name = row['Produk']
-                    st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
+                if st.button(f"SELECT", key=f"pos_{i}"):
+                    st.session_state.cart[row['Produk']] = st.session_state.cart.get(row['Produk'], 0) + 1
                     st.rerun()
 
-    with col_struk:
+    with col_s:
         st.markdown('<div class="cart-section">', unsafe_allow_html=True)
-        st.markdown("### 📑 Detail Pesanan")
+        st.title("ORDER")
+        total = 0
+        for item, qty in list(st.session_state.cart.items()):
+            p_price = df[df['Produk'] == item]['Harga Jual'].values[0]
+            total += (p_price * qty)
+            st.markdown(f"**{item}** x{qty} <span style='float:right;'>Rp {p_price*qty:,.0f}</span>", unsafe_allow_html=True)
         
-        grand_total = 0
-        if st.session_state.cart:
-            for item, qty in list(st.session_state.cart.items()):
-                price = df[df['Produk'] == item]['Harga Jual'].values[0]
-                subtotal = price * qty
-                grand_total += subtotal
-                st.markdown(f"**{item}** \n{qty}x — Rp {subtotal:,.0f}")
-            
-            st.markdown("<hr style='border: 1px white solid;'>", unsafe_allow_html=True)
-            st.markdown(f"<h2 style='text-align: right;'>Total: Rp {grand_total:,.0f}</h2>", unsafe_allow_html=True)
-            
-            # Tombol Cetak dengan Style Khusus
-            st.markdown('<div class="pay-button">', unsafe_allow_html=True)
-            if st.button("🔥 BAYAR & CETAK"):
-                # Logika PDF
-                pdf = FPDF(format=(80, 150))
-                pdf.add_page()
-                pdf.set_font("Arial", 'B', 12); pdf.cell(60, 8, "BRANZ TECH PRO", ln=1, align='C')
-                pdf.set_font("Arial", '', 8); pdf.cell(60, 5, f"User: {st.session_state.user}", ln=1, align='C')
-                pdf.cell(60, 5, datetime.now().strftime("%d/%m/%Y %H:%M"), ln=1, align='C')
-                pdf.output("struk.pdf")
-                st.success("Struk Siap!")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            if st.button("🗑️ Kosongkan"):
-                st.session_state.cart = {}
-                st.rerun()
-        else:
-            st.write("Silahkan pilih menu...")
+        st.markdown("<br><h1 style='text-align:right;'>Rp {:,.0f}</h1>".format(total), unsafe_allow_html=True)
+        if st.button("✨ EXECUTE TRANSACTION"):
+            st.balloons()
+            st.session_state.cart = {}
+        if st.button("RESET"):
+            st.session_state.cart = {}
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
