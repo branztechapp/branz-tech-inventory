@@ -1,7 +1,5 @@
 streamlit
 pandas
-plotly
 st-gsheets-connection
-pyzbar
-pillow
-fpdf
+fpdf2
+plotly
