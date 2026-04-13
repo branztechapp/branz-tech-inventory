@@ -1,186 +1,226 @@
 import streamlit as st
-from st_gsheets_connection import GSheetsConnection
 import pandas as pd
-import plotly.express as px
-from datetime import datetime
+from st_gsheets_connection import GSheetsConnection
 from fpdf import FPDF
+import datetime
 import io
+import plotly.express as px
 
-# --- 1. KONFIGURASI HALAMAN & STYLE ---
-st.set_page_config(page_title="BRANZ TECH PRO", layout="wide", page_icon="🚀")
+# --- 1. CONFIG & STYLING ---
+st.set_page_config(page_title="BRANZ TECH POS", layout="wide", page_icon="💎")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0e1117; }
-    .main-card { background: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; }
-    [data-testid="stMetricValue"] { color: #58a6ff !important; font-size: 1.8rem !important; }
+    .stApp { background-color: #0f172a; color: #f8fafc; }
+    .main-card { background: #1e293b; padding: 20px; border-radius: 15px; border: 1px solid #334155; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
+    div[data-baseweb="input"] { background-color: #1e293b !important; border: 1px solid #3b82f6 !important; }
+    [data-testid="stMetricValue"] { color: #60a5fa !important; font-size: 2rem !important; }
+    .stTable { background-color: #1e293b; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# Fungsi format mata uang
-def format_rp(angka):
-    return f"Rp {angka:,.0f}".replace(",", ".")
-
-# --- 2. SISTEM LOGIN ---
-users = {
-    "admin": "branz123",
-    "agen_aisyah": "aisyah99",
-    "agen_nikmat": "cireng77"
-}
-
-if 'auth' not in st.session_state:
-    st.session_state.update({'auth': False, 'user': None, 'role': None, 'cart': {}})
-
-if not st.session_state.auth:
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
-        st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-        st.title("🔒 BRANZ TECH LOGIN")
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.button("Masuk"):
-            if u in users and users[u] == p:
-                st.session_state.auth = True
-                st.session_state.user = u
-                st.session_state.role = "admin" if u == "admin" else "staff"
-                st.rerun()
-            else: st.error("Login Gagal!")
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.stop()
-
-# --- 3. KONEKSI DATA ---
+# --- 2. DATA ENGINE ---
 URL_DB = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
         data = conn.read(spreadsheet=URL_DB, ttl=0)
-        df = data.copy().dropna(subset=['Produk'])
-        df['Stok'] = pd.to_numeric(df['Stok']).fillna(0).astype(int)
-        df['Harga Modal'] = pd.to_numeric(df['Harga Modal']).fillna(0)
-        df['Harga Jual'] = pd.to_numeric(df['Harga Jual']).fillna(0)
+        df = data.copy()
+        df.columns = df.columns.str.strip()
+        df = df.dropna(subset=['Produk'])
+        
+        # Standarisasi Data
+        df['Barcode'] = df['Barcode'].astype(str).str.split('.').str[0].str.strip()
+        df['Stok'] = pd.to_numeric(df['Stok'], errors='coerce').fillna(0).astype(int)
+        df['Harga Jual'] = pd.to_numeric(df['Harga Jual'], errors='coerce').fillna(0)
+        df['Harga Modal'] = pd.to_numeric(df.get('Harga Modal', 0), errors='coerce').fillna(0)
         return df
     except Exception as e:
         st.error(f"Gagal memuat data: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['Produk', 'Stok', 'Harga Jual', 'Barcode', 'Harga Modal'])
 
-if 'df_local' not in st.session_state:
-    st.session_state.df_local = load_data()
+# --- 3. SESSION INITIALIZATION ---
+if 'auth' not in st.session_state:
+    st.session_state.update({
+        'auth': False, 'user': None, 'role': None, 
+        'cart': {}, 'history': [], 'df_local': load_data(), 
+        'receipt_bin': None
+    })
 
-# --- 4. SIDEBAR ---
+# --- 4. CORE FUNCTIONS ---
+def process_cart(p_name, action="add"):
+    df = st.session_state.df_local
+    idx = df[df['Produk'] == p_name].index[0]
+    
+    if action == "add":
+        if df.at[idx, 'Stok'] > 0:
+            st.session_state.cart[p_name] = st.session_state.cart.get(p_name, 0) + 1
+            st.session_state.df_local.at[idx, 'Stok'] -= 1
+            return True
+    elif action == "remove":
+        if p_name in st.session_state.cart:
+            st.session_state.df_local.at[idx, 'Stok'] += 1
+            if st.session_state.cart[p_name] > 1:
+                st.session_state.cart[p_name] -= 1
+            else:
+                del st.session_state.cart[p_name]
+    return False
+
+def make_pdf(cart_data, total, cust, cashier, df_ref):
+    pdf = FPDF(format=(80, 150))
+    pdf.add_page()
+    pdf.set_font("Helvetica", 'B', 14)
+    pdf.cell(60, 10, "BRANZ TECH", ln=True, align='C')
+    pdf.set_font("Helvetica", size=8)
+    pdf.cell(60, 4, f"Tgl: {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}", ln=True)
+    pdf.cell(60, 4, f"Kasir: {cashier} | Cust: {cust}", ln=True)
+    pdf.cell(60, 2, "-"*35, ln=True)
+    
+    for item, qty in cart_data.items():
+        price = df_ref[df_ref['Produk'] == item]['Harga Jual'].values[0]
+        pdf.set_font("Helvetica", 'B', 8)
+        pdf.multi_cell(60, 4, f"{item}")
+        pdf.set_font("Helvetica", size=8)
+        pdf.cell(60, 4, f"{qty} x {price:,.0f} = {qty*price:,.0f}", ln=True, align='R')
+    
+    pdf.cell(60, 2, "-"*35, ln=True)
+    pdf.set_font("Helvetica", 'B', 10)
+    pdf.cell(60, 8, f"TOTAL: Rp {total:,.0f}", ln=True, align='R')
+    pdf.set_font("Helvetica", 'I', 7)
+    pdf.cell(60, 10, "Terima Kasih Atas Kunjungan Anda", ln=True, align='C')
+    return pdf.output(dest='S').encode('latin-1', 'ignore')
+
+# --- 5. LOGIN SYSTEM ---
+if not st.session_state.auth:
+    _, col, _ = st.columns([1, 1, 1])
+    with col:
+        st.markdown("<div class='main-card'>", unsafe_allow_html=True)
+        st.title("💎 LOGIN")
+        u = st.text_input("Username").lower()
+        p = st.text_input("Password", type="password")
+        if st.button("MASUK"):
+            if u == "admin" and p == "branz123":
+                st.session_state.update({"auth": True, "user": "Admin", "role": "admin"})
+                st.rerun()
+            elif u == "staff" and p == "aisyah99":
+                st.session_state.update({"auth": True, "user": "Aisyah", "role": "staff"})
+                st.rerun()
+            else: st.error("Akses Ditolak")
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+# --- 6. SIDEBAR NAVIGATION ---
 with st.sidebar:
-    st.title("🚀 BRANZ TECH")
-    st.write(f"👤 **{st.session_state.user}** ({st.session_state.role})")
-    menu = st.radio("Menu Utama", ["Dashboard", "Kasir POS", "Update Stok"])
+    st.title("BRANZ TECH")
+    st.markdown(f"**{st.session_state.user}** | `{st.session_state.role.upper()}`")
+    menu = st.radio("Navigasi", ["🛒 Kasir POS", "📦 Inventaris", "📜 Riwayat"])
+    
+    if st.session_state.role == "admin":
+        st.divider()
+        with st.expander("🛠️ Update Master Stok"):
+            with st.form("stock_form"):
+                f_name = st.text_input("Produk")
+                f_modal = st.number_input("Harga Modal", min_value=0)
+                f_jual = st.number_input("Harga Jual", min_value=0)
+                f_stok = st.number_input("Stok", min_value=0)
+                if st.form_submit_button("Simpan ke Cloud"):
+                    df_up = st.session_state.df_local.copy()
+                    if f_name in df_up['Produk'].values:
+                        idx = df_up[df_up['Produk'] == f_name].index[0]
+                        df_up.loc[idx, ['Stok', 'Harga Jual', 'Harga Modal']] = [f_stok, f_jual, f_modal]
+                    else:
+                        new_row = pd.DataFrame([{'Produk': f_name, 'Stok': f_stok, 'Harga Jual': f_jual, 'Harga Modal': f_modal}])
+                        df_up = pd.concat([df_up, new_row], ignore_index=True)
+                    conn.update(spreadsheet=URL_DB, data=df_up)
+                    st.session_state.df_local = df_up
+                    st.success("Tersimpan!")
+                    st.rerun()
+
     st.divider()
-    if st.button("🚪 Logout"):
+    if st.button("🔄 Refresh Data"):
+        st.session_state.df_local = load_data()
+        st.rerun()
+    if st.button("🚪 Keluar"):
         st.session_state.auth = False
         st.rerun()
 
-# --- 5. DASHBOARD ---
-if menu == "Dashboard":
-    st.title("📊 Analisis Bisnis")
+# --- 7. KASIR MODULE ---
+if menu == "🛒 Kasir POS":
     df = st.session_state.df_local
+    c1, c2 = st.columns([1.5, 1])
     
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Stok", f"{df['Stok'].sum()} Pcs")
-    m2.metric("Nilai Aset", format_rp((df['Stok'] * df['Harga Modal']).sum()))
-    m3.metric("Potensi Profit", format_rp(((df['Harga Jual'] - df['Harga Modal']) * df['Stok']).sum()))
-    
-    st.divider()
-    c1, c2 = st.columns(2)
     with c1:
-        fig = px.bar(df, x="Produk", y="Stok", color="Stok", title="Level Stok Barang", color_continuous_scale="Viridis")
-        st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        st.subheader("📋 Daftar Inventaris")
-        st.dataframe(df[['Produk', 'Stok', 'Harga Jual']], use_container_width=True, hide_index=True)
-
-# --- 6. KASIR POS (PRO) ---
-elif menu == "Kasir POS":
-    st.title("💸 Kasir Digital")
-    df = st.session_state.df_local
-    
-    col_input, col_cart = st.columns([1, 1.2])
-    
-    with col_input:
-        st.subheader("Input Barang")
-        p_pilih = st.selectbox("Cari Produk", df['Produk'].unique())
-        qty = st.number_input("Jumlah", min_value=1, step=1)
-        
-        if st.button("➕ Tambah ke Keranjang"):
-            stok_ada = df[df['Produk'] == p_pilih]['Stok'].values[0]
-            qty_skrg = st.session_state.cart.get(p_pilih, 0)
+        st.markdown("<div class='main-card'>", unsafe_allow_html=True)
+        barcode = st.text_input("⚡ SCAN BARCODE", help="Arahkan scanner ke sini").strip()
+        if barcode:
+            match = df[df['Barcode'] == barcode]
+            if not match.empty:
+                if process_cart(match.iloc[0]['Produk']): st.toast("✅ Ditambahkan")
+                else: st.error("Stok Habis!")
+            else: st.warning("Barcode Tidak Terdaftar")
+            st.rerun()
             
-            if (qty_skrg + qty) <= stok_ada:
-                st.session_state.cart[p_pilih] = qty_skrg + qty
-                st.toast(f"{p_pilih} ditambahkan!")
-            else:
-                st.error("Stok tidak mencukupi!")
+        st.subheader("Pencarian Produk")
+        p_sel = st.selectbox("Cari Nama Barang", [""] + sorted(df['Produk'].tolist()))
+        if p_sel and st.button(f"➕ Tambah {p_sel}"):
+            if process_cart(p_sel): st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_cart:
+    with c2:
         st.subheader("🛒 Keranjang")
+        cust_name = st.text_input("Nama Pelanggan", "Umum")
+        
         if not st.session_state.cart:
-            st.info("Keranjang kosong")
+            st.info("Keranjang kosong.")
         else:
-            grand_total = 0
-            for item, q in list(st.session_state.cart.items()):
-                harga = df[df['Produk'] == item]['Harga Jual'].values[0]
-                subtotal = harga * q
-                grand_total += subtotal
-                c_item, c_del = st.columns([3, 1])
-                c_item.write(f"**{item}** ({q}x) - {format_rp(subtotal)}")
-                if c_del.button("❌", key=f"del_{item}"):
-                    del st.session_state.cart[item]
-                    st.rerun()
+            total_belanja = 0
+            for itm, q in list(st.session_state.cart.items()):
+                harga = df[df['Produk'] == itm]['Harga Jual'].values[0]
+                sub = harga * q
+                total_belanja += sub
+                with st.container(border=True):
+                    sc1, sc2 = st.columns([3, 1])
+                    sc1.write(f"**{itm}**\n{q}x @ {harga:,.0f}")
+                    if sc2.button("❌", key=f"del_{itm}"):
+                        process_cart(itm, "remove")
+                        st.rerun()
             
             st.divider()
-            st.subheader(f"Total: {format_rp(grand_total)}")
+            disc = st.number_input("Diskon (Rp)", value=0, step=500)
+            net_total = max(0, total_belanja - disc)
+            st.metric("TOTAL BAYAR", f"Rp {net_total:,.0f}")
             
-            if st.button("🏁 SELESAI & UPDATE CLOUD", type="primary"):
-                # Update Stok di DataFrame Lokal
-                for item, q in st.session_state.cart.items():
-                    idx = df[df['Produk'] == item].index[0]
-                    df.at[idx, 'Stok'] -= q
-                
-                # Push ke Google Sheets
-                conn.update(spreadsheet=URL_DB, data=df)
-                st.session_state.df_local = df
+            if st.button("🏁 SELESAI & CETAK", type="primary"):
+                conn.update(spreadsheet=URL_DB, data=st.session_state.df_local)
+                st.session_state.receipt_bin = make_pdf(st.session_state.cart, net_total, cust_name, st.session_state.user, df)
+                st.session_state.history.append({"Jam": datetime.datetime.now().strftime("%H:%M"), "Cust": cust_name, "Total": net_total})
                 st.session_state.cart = {}
-                st.success("Transaksi Berhasil & Stok Terpotong!")
-                st.balloons()
+                st.success("Data Cloud Terupdate!")
                 st.rerun()
 
-# --- 7. UPDATE STOK (ADMIN ONLY) ---
-elif menu == "Update Stok":
-    st.title("📥 Manajemen Data & Stok")
-    df = st.session_state.df_local
+        if st.session_state.receipt_bin:
+            st.download_button("📥 DOWNLOAD STRUK PDF", st.session_state.receipt_bin, 
+                             file_name=f"Struk_{datetime.datetime.now().strftime('%H%M%S')}.pdf", mime="application/pdf")
 
-    if st.session_state.role == "admin":
-        with st.expander("🛠️ Form Edit Stok / Produk Baru", expanded=True):
-            with st.form("edit_form"):
-                f_nama = st.text_input("Nama Produk (Sesuai database atau Baru)")
-                f_modal = st.number_input("Harga Modal", min_value=0)
-                f_jual = st.number_input("Harga Jual", min_value=0)
-                f_stok = st.number_input("Jumlah Stok", min_value=0)
-                f_bc = st.text_input("Barcode (Opsional)")
-                
-                if st.form_submit_button("Simpan Permanen ke Cloud"):
-                    df_up = df.copy()
-                    if f_nama in df_up['Produk'].values:
-                        idx = df_up[df_up['Produk'] == f_nama].index[0]
-                        df_up.at[idx, 'Stok'] = f_stok
-                        df_up.at[idx, 'Harga Modal'] = f_modal
-                        df_up.at[idx, 'Harga Jual'] = f_jual
-                        if f_bc: df_up.at[idx, 'Barcode'] = f_bc
-                    else:
-                        new_row = pd.DataFrame([{'Produk': f_nama, 'Stok': f_stok, 'Harga Modal': f_modal, 'Harga Jual': f_jual, 'Barcode': f_bc}])
-                        df_up = pd.concat([df_up, new_row], ignore_index=True)
-                    
-                    conn.update(spreadsheet=URL_DB, data=df_up)
-                    st.session_state.df_local = df_up
-                    st.success("Data Berhasil Diupdate!")
-                    st.rerun()
+# --- 8. INVENTARIS ---
+elif menu == "📦 Inventaris":
+    st.title("📦 Kontrol Inventaris")
+    df = st.session_state.df_local
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.dataframe(df[['Barcode', 'Produk', 'Stok', 'Harga Jual']], use_container_width=True, hide_index=True)
+    with col2:
+        st.subheader("Visual Stok")
+        fig = px.pie(df, values='Stok', names='Produk', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+        st.plotly_chart(fig, use_container_width=True)
+
+# --- 9. RIWAYAT ---
+elif menu == "📜 Riwayat":
+    st.title("📜 Transaksi Hari Ini")
+    if st.session_state.history:
+        st.table(st.session_state.history)
     else:
-        st.warning("Hanya Admin yang dapat mengedit data stok.")
-        st.table(df[['Produk', 'Stok', 'Harga Jual']])
+        st.info("Belum ada aktivitas penjualan.")
