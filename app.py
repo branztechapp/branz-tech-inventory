@@ -24,6 +24,7 @@ st.markdown("""
 URL_DB = "https://docs.google.com/spreadsheets/d/18W7as8Lqc6wyci4Q4AWLvszSV-miwkFMiNAi4EH3QMo/edit#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+@st.cache_data(ttl=60)
 def load_data():
     try:
         data = conn.read(spreadsheet=URL_DB, ttl=0)
@@ -69,28 +70,29 @@ def process_cart(p_name, action="add"):
     return False
 
 def make_pdf(cart_data, total, cust, cashier, df_ref):
+    # FPDF2 standar
     pdf = FPDF(format=(80, 150))
     pdf.add_page()
     pdf.set_font("Helvetica", 'B', 14)
-    pdf.cell(60, 10, "BRANZ TECH", ln=True, align='C')
+    pdf.cell(60, 10, "BRANZ TECH", new_x="LMARGIN", new_y="NEXT", align='C')
     pdf.set_font("Helvetica", size=8)
-    pdf.cell(60, 4, f"Tgl: {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}", ln=True)
-    pdf.cell(60, 4, f"Kasir: {cashier} | Cust: {cust}", ln=True)
-    pdf.cell(60, 2, "-"*35, ln=True)
+    pdf.cell(60, 4, f"Tgl: {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(60, 4, f"Kasir: {cashier} | Cust: {cust}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(60, 2, "-"*35, new_x="LMARGIN", new_y="NEXT")
     
     for item, qty in cart_data.items():
         price = df_ref[df_ref['Produk'] == item]['Harga Jual'].values[0]
         pdf.set_font("Helvetica", 'B', 8)
         pdf.multi_cell(60, 4, f"{item}")
         pdf.set_font("Helvetica", size=8)
-        pdf.cell(60, 4, f"{qty} x {price:,.0f} = {qty*price:,.0f}", ln=True, align='R')
+        pdf.cell(60, 4, f"{qty} x {price:,.0f} = {qty*price:,.0f}", new_x="LMARGIN", new_y="NEXT", align='R')
     
-    pdf.cell(60, 2, "-"*35, ln=True)
+    pdf.cell(60, 2, "-"*35, new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", 'B', 10)
-    pdf.cell(60, 8, f"TOTAL: Rp {total:,.0f}", ln=True, align='R')
+    pdf.cell(60, 8, f"TOTAL: Rp {total:,.0f}", new_x="LMARGIN", new_y="NEXT", align='R')
     pdf.set_font("Helvetica", 'I', 7)
-    pdf.cell(60, 10, "Terima Kasih Atas Kunjungan Anda", ln=True, align='C')
-    return pdf.output(dest='S').encode('latin-1', 'ignore')
+    pdf.cell(60, 10, "Terima Kasih!", new_x="LMARGIN", new_y="NEXT", align='C')
+    return pdf.output() # Output PDF sebagai bytes
 
 # --- 5. LOGIN SYSTEM ---
 if not st.session_state.auth:
@@ -119,13 +121,13 @@ with st.sidebar:
     
     if st.session_state.role == "admin":
         st.divider()
-        with st.expander("🛠️ Update Master Stok"):
+        with st.expander("🛠️ Master Stok"):
             with st.form("stock_form"):
                 f_name = st.text_input("Produk")
                 f_modal = st.number_input("Harga Modal", min_value=0)
                 f_jual = st.number_input("Harga Jual", min_value=0)
                 f_stok = st.number_input("Stok", min_value=0)
-                if st.form_submit_button("Simpan ke Cloud"):
+                if st.form_submit_button("Simpan"):
                     df_up = st.session_state.df_local.copy()
                     if f_name in df_up['Produk'].values:
                         idx = df_up[df_up['Produk'] == f_name].index[0]
@@ -139,7 +141,8 @@ with st.sidebar:
                     st.rerun()
 
     st.divider()
-    if st.button("🔄 Refresh Data"):
+    if st.button("🔄 Sync Cloud"):
+        st.cache_data.clear()
         st.session_state.df_local = load_data()
         st.rerun()
     if st.button("🚪 Keluar"):
@@ -153,17 +156,21 @@ if menu == "🛒 Kasir POS":
     
     with c1:
         st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-        barcode = st.text_input("⚡ SCAN BARCODE", help="Arahkan scanner ke sini").strip()
+        # Scan Barcode dengan otomatis submit
+        barcode = st.text_input("⚡ SCAN BARCODE", key="bc_input").strip()
         if barcode:
             match = df[df['Barcode'] == barcode]
             if not match.empty:
-                if process_cart(match.iloc[0]['Produk']): st.toast("✅ Ditambahkan")
+                if process_cart(match.iloc[0]['Produk']):
+                    st.toast("✅ Ditambahkan")
+                    # Clear input barcode setelah sukses scan
+                    st.session_state.bc_input = ""
+                    st.rerun()
                 else: st.error("Stok Habis!")
             else: st.warning("Barcode Tidak Terdaftar")
-            st.rerun()
             
-        st.subheader("Pencarian Produk")
-        p_sel = st.selectbox("Cari Nama Barang", [""] + sorted(df['Produk'].tolist()))
+        st.subheader("Manual")
+        p_sel = st.selectbox("Cari Barang", [""] + sorted(df['Produk'].tolist()))
         if p_sel and st.button(f"➕ Tambah {p_sel}"):
             if process_cart(p_sel): st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -173,13 +180,12 @@ if menu == "🛒 Kasir POS":
         cust_name = st.text_input("Nama Pelanggan", "Umum")
         
         if not st.session_state.cart:
-            st.info("Keranjang kosong.")
+            st.info("Kosong.")
         else:
             total_belanja = 0
             for itm, q in list(st.session_state.cart.items()):
                 harga = df[df['Produk'] == itm]['Harga Jual'].values[0]
-                sub = harga * q
-                total_belanja += sub
+                total_belanja += (harga * q)
                 with st.container(border=True):
                     sc1, sc2 = st.columns([3, 1])
                     sc1.write(f"**{itm}**\n{q}x @ {harga:,.0f}")
@@ -190,32 +196,28 @@ if menu == "🛒 Kasir POS":
             st.divider()
             disc = st.number_input("Diskon (Rp)", value=0, step=500)
             net_total = max(0, total_belanja - disc)
-            st.metric("TOTAL BAYAR", f"Rp {net_total:,.0f}")
+            st.metric("TOTAL", f"Rp {net_total:,.0f}")
             
             if st.button("🏁 SELESAI & CETAK", type="primary"):
                 conn.update(spreadsheet=URL_DB, data=st.session_state.df_local)
                 st.session_state.receipt_bin = make_pdf(st.session_state.cart, net_total, cust_name, st.session_state.user, df)
                 st.session_state.history.append({"Jam": datetime.datetime.now().strftime("%H:%M"), "Cust": cust_name, "Total": net_total})
                 st.session_state.cart = {}
-                st.success("Data Cloud Terupdate!")
+                st.success("Cloud Updated!")
                 st.rerun()
 
         if st.session_state.receipt_bin:
-            st.download_button("📥 DOWNLOAD STRUK PDF", st.session_state.receipt_bin, 
-                             file_name=f"Struk_{datetime.datetime.now().strftime('%H%M%S')}.pdf", mime="application/pdf")
+            st.download_button("📥 DOWNLOAD STRUK", st.session_state.receipt_bin, 
+                             file_name=f"BRANZ_{datetime.datetime.now().strftime('%H%M%S')}.pdf", mime="application/pdf")
 
 # --- 8. INVENTARIS ---
 elif menu == "📦 Inventaris":
-    st.title("📦 Kontrol Inventaris")
-    df = st.session_state.df_local
+    st.title("📦 Stok Barang")
+    st.dataframe(st.session_state.df_local[['Barcode', 'Produk', 'Stok', 'Harga Jual']], use_container_width=True, hide_index=True)
     
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.dataframe(df[['Barcode', 'Produk', 'Stok', 'Harga Jual']], use_container_width=True, hide_index=True)
-    with col2:
-        st.subheader("Visual Stok")
-        fig = px.pie(df, values='Stok', names='Produk', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
-        st.plotly_chart(fig, use_container_width=True)
+    # Chart visualisasi stok sederhana
+    fig = px.bar(st.session_state.df_local, x='Produk', y='Stok', color='Stok', title="Level Stok Barang")
+    st.plotly_chart(fig, use_container_width=True)
 
 # --- 9. RIWAYAT ---
 elif menu == "📜 Riwayat":
@@ -223,4 +225,4 @@ elif menu == "📜 Riwayat":
     if st.session_state.history:
         st.table(st.session_state.history)
     else:
-        st.info("Belum ada aktivitas penjualan.")
+        st.info("Belum ada penjualan.")
